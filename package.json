@@ -1,7 +1,8 @@
 {
   "name": "@luon/view",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "description": "Luon View compiler and Act runtime",
+  "license": "MIT",
   "keywords": [
     "luon",
     "tsx",

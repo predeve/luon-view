@@ -273,3 +273,7 @@ Apply the View compiler through Bun builds.
 - [Complete View language](https://docs.luon.dev/frontend/view)
 - [State and watchers](https://docs.luon.dev/frontend/state-watch)
 - [Forms and validation](https://docs.luon.dev/frontend/forms-validation)
+
+## License
+
+[MIT](LICENSE) © predeve
