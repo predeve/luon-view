@@ -1,0 +1,47 @@
+{
+  "name": "@luon/view",
+  "version": "0.0.18",
+  "description": "Luon View compiler and Act runtime",
+  "keywords": [
+    "luon",
+    "tsx",
+    "jsx",
+    "compiler",
+    "reactive",
+    "typescript"
+  ],
+  "homepage": "https://pkg.luon.dev/packages/view/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/predeve/luon-view.git"
+  },
+  "bugs": {
+    "url": "https://github.com/predeve/luon/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://pkg.luon.dev"
+  },
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./compiler": "./src/compiler.ts",
+    "./content": "./src/content.ts",
+    "./plugin": "./src/plugin.ts",
+    "./jsx-runtime": "./src/jsx-runtime.ts",
+    "./jsx-dev-runtime": "./src/jsx-runtime.ts"
+  },
+  "dependencies": {
+    "@luon/act": "0.0.2",
+    "@luon/rule": "0.1.1",
+    "@luon/style": "0.1.1",
+    "@typescript/typescript6": "^6.0.2"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.12.0",
+    "@types/bun": "^1.4.0"
+  }
+}
