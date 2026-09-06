@@ -8,7 +8,10 @@ import {
 } from "@luon/act";
 import type { ObjectRule, RuleShape, ShapeOutput } from "@luon/rule";
 
-import { withLife, type ViewLife } from "./life.ts";
+import {
+  closeLife, currentLife, lifeCall, loadLife, runLife, type ViewLife,
+} from "./life.ts";
+import type { ViewSource } from "./error.ts";
 import { viewVersion } from "./store.ts";
 import type { ViewProps, ViewScope } from "./types.ts";
 
@@ -266,8 +269,8 @@ export function groupView<Props extends ViewProps>(
       [groupKey]: scope,
       [propsKey]: (child as ViewChild)[propsKey],
       dispose() {
-        child.dispose?.();
-        closeGroup(scope);
+        try { child.dispose?.(); }
+        finally { closeGroup(scope); }
       },
       read: () => markGroup(child.read() as Child, scope),
     });
@@ -281,6 +284,9 @@ type ComponentProps<Props, Shape extends RuleShape> =
   Omit<Props, keyof Shape> & Partial<ShapeOutput<Shape>>;
 
 export function eventView(event: ViewEvents) {
+  const life = currentLife();
+  const call = (phase: string, run: () => unknown) => life
+    ? lifeCall(life, phase, run) : run();
   const clean: Array<() => void> = [];
   let loaded = false;
   let closed = false;
@@ -291,10 +297,11 @@ export function eventView(event: ViewEvents) {
     if (!target || !handlers) return;
     for (const [name, run] of Object.entries(handlers)) {
       if (typeof run !== "function") continue;
-      target.addEventListener(name, run as EventListener, true);
+      const handler = (event: Event) => call(`event.${name}`, () => run(event));
+      target.addEventListener(name, handler, true);
       clean.push(() => target.removeEventListener(
         name,
-        run as EventListener,
+        handler,
         true,
       ));
     }
@@ -311,13 +318,13 @@ export function eventView(event: ViewEvents) {
         typeof window === "undefined" ? undefined : window,
         event.window,
       );
-      event.load?.();
+      call("load", () => event.load?.());
     },
     close() {
       if (closed) return;
       closed = true;
       try {
-        event.close?.();
+        call("close", () => event.close?.());
       } finally {
         for (const run of clean.splice(0).toReversed()) run();
       }
@@ -362,16 +369,33 @@ export function namedView<
   name: string,
   create: Create,
   spec?: PropsRule<RuleShape>,
+  source?: ViewSource,
 ): Create {
   const View = componentView(name, (props) => {
     const source = propSources.get(props) || props;
     const input = propView(source, spec, false);
     const child = create(input);
     return { render: () => child };
-  });
+  }, undefined, source);
   return ((props: ViewProps) => {
     const child = View(props) as Read<Child>;
-    return rootView(child.read(), props);
+    try {
+      const result = rootView(child.read(), props);
+      const attach = (value: Child) => {
+        if (Array.isArray(value)) value.forEach(attach);
+        else if (typeof Node !== "undefined" && value instanceof Element) {
+          // A native ref owns the synchronous named View boundary.
+          bindProps(value, { ref: (node: Element | null) => {
+            if (!node) child.dispose?.();
+          } });
+        }
+      };
+      attach(result);
+      return result;
+    } catch (error) {
+      child.dispose?.();
+      throw error;
+    }
   }) as Create;
 }
 
@@ -380,10 +404,11 @@ export function namedViews<
 >(
   creates: Creates,
   spec?: (name: keyof Creates & string) => PropsRule<RuleShape>,
+  source?: ViewSource,
 ): Creates {
   return Object.fromEntries(Object.entries(creates).map(([name, create]) => [
     name,
-    namedView(name, create, spec?.(name)),
+    namedView(name, create, spec?.(name), source),
   ])) as Creates;
 }
 
@@ -442,6 +467,8 @@ function propView<
 export function componentView<Props extends ViewProps = ViewProps>(
   name: string,
   setup: Setup<Props>,
+  spec?: undefined,
+  source?: ViewSource,
 ): Component<Props>;
 export function componentView<
   Props extends ViewProps = ViewProps,
@@ -450,6 +477,7 @@ export function componentView<
   name: string,
   setup: Setup<Props>,
   spec: PropsRule<Shape>,
+  source?: ViewSource,
 ): Component<ComponentProps<Props, Shape>>;
 export function componentView<
   Props extends ViewProps = ViewProps,
@@ -458,29 +486,70 @@ export function componentView<
   name: string,
   setup: Setup<Props>,
   spec?: PropsRule<Shape>,
+  source?: ViewSource,
 ) {
   const View = (props: Props) => {
     const input = propView(props, spec) as Props & ShapeOutput<Shape>;
-    const life: ViewLife = { close: [], load: [] };
-    const scope = withLife(life, () => setup(input));
+    const frame = { view: name, ...source, phase: "setup" };
+    const life: ViewLife = { close: [], load: [], frame };
+    let rendered: ViewLife | undefined;
+    let scope: ViewScope<Props>;
+    const clean = (...runs: Array<() => void>) => {
+      const errors: unknown[] = [];
+      for (const run of runs) {
+        try { run(); } catch (error) { errors.push(error); }
+      }
+      if (errors.length === 1) throw errors[0];
+      if (errors.length) throw new AggregateError(errors, "View cleanup failed.");
+    };
+    try {
+      scope = runLife(life, "setup", () => setup(input));
+    } catch (error) {
+      clean(() => closeLife(life), () => { throw error; });
+      throw error;
+    }
     let loaded = false;
     let closed = false;
-    const load = () => {
-      if (loaded || closed) return;
-      loaded = true;
-      scope.load?.();
-      for (const run of life.load) run();
+    const load = (render: ViewLife) => {
+      if (closed || render.closed) return;
+      try {
+        if (!loaded) {
+          loaded = true;
+          lifeCall(life, "load", () => scope.load?.());
+          loadLife(life);
+        }
+        loadLife(render);
+      } catch (error) {
+        clean(close, () => { throw error; });
+      }
     };
     const close = () => {
       if (closed) return;
       closed = true;
-      for (const run of life.close.toReversed()) run();
-      scope.close?.();
+      clean(
+        () => { if (rendered) closeLife(rendered); },
+        () => closeLife(life),
+        () => { lifeCall(life, "close", () => scope.close?.()); },
+      );
     };
     const read = act((): Child => {
+      if (closed) throw new Error(`Luon ${name} View is closed.`);
       viewVersion();
-      if (!loaded) queueMicrotask(load);
-      return scope.render(input);
+      const next: ViewLife = { close: [], load: [], frame };
+      let child: Child;
+      try {
+        child = runLife(next, "render", () => scope.render(input));
+      } catch (error) {
+        clean(() => closeLife(next),
+          () => { if (!rendered) close(); },
+          () => { throw error; });
+        throw error;
+      }
+      const previous = rendered;
+      rendered = next;
+      if (previous) closeLife(previous);
+      queueMicrotask(() => load(next));
+      return child;
     });
     return Object.freeze({
       __act: true as const,

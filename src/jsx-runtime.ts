@@ -11,6 +11,7 @@ import type {
   JSX as ActJSX,
 } from "@luon/act/jsx-runtime";
 
+import { currentLife, lifeCall } from "./life.ts";
 import { classText, type ClassValue } from "./class.ts";
 import type { Attrs } from "./compat.ts";
 
@@ -112,7 +113,18 @@ function normalize(type: unknown, source: Record<string, any> = {}) {
 }
 
 export function jsx(type: any, props: Record<string, any>, key?: unknown) {
-  return actJsx(type, normalize(type, props), key);
+  const life = currentLife();
+  const values = normalize(type, props);
+  if (life && typeof type === "string") {
+    for (const [name, run] of Object.entries(values)) {
+      if (/^on[A-Z]/.test(name) && typeof run === "function") {
+        values[name] = function (this: unknown, ...args: unknown[]) {
+          return lifeCall(life, `event.${name}`, () => run.apply(this, args));
+        };
+      }
+    }
+  }
+  return actJsx(type, values, key);
 }
 
 export const jsxs = jsx;

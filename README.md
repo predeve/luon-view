@@ -48,7 +48,7 @@ One View file declares behavior through these stable names.
 | --- | --- |
 | spec | Prop defaults, validation, and attrs |
 | data | Per-instance reactive state |
-| computed | Derived getters and optional setters |
+| computed | Lazy cached getters and optional setters |
 | watch | Observed values and cleanup |
 | event | Handlers, load, close, window, and document |
 | style | Scoped CSS and class recipes |
@@ -277,3 +277,39 @@ Apply the View compiler through Bun builds.
 ## License
 
 [MIT](LICENSE) © predeve
+
+## Ownership, caching, and error context
+
+`computed` getters cache per instance until their reactive dependencies change.
+Use pure getters and update reactive state in setters. Use `{ get, cache: false }`
+for nonreactive external values that must be read on every call.
+
+Package helpers can use `memoView(get)` to create the same lazy cached getter,
+and `effectView(run)` for tracked work. Both release subscriptions automatically
+with their current View scope. Outside a View, call `getter.dispose()` or the
+returned effect stop function yourself.
+
+```tsx
+import { liveView, memoView, onClose, onLoad } from "@luon/view";
+
+export default () => {
+  const total = memoView(() => props.rows.reduce((n, row) => n + row.price, 0));
+  onLoad(() => {
+    const timer = setInterval(() => console.log(total()), 1000);
+    onClose(() => clearInterval(timer));
+  });
+  return <p>{liveView(() => total())}</p>;
+};
+```
+
+`onLoad`/`onClose` may be called in synchronous setup, render helpers, or load
+callbacks (register only cleanup during load). Register cleanup before `await`.
+Setup resources live for the instance; render resources live for that render.
+Replacement, unmount, and setup/render failures release their scopes. One
+cleanup error does not skip remaining cleanup or DOM removal. `scope(create)`
+also closes only once. Reserved exports remain `event.load` and `event.close`.
+
+`ViewError.frames` identifies the original View file, name, and execution phase.
+`cause` preserves the original exception and stack, including async event,
+watch, and lifecycle rejections. File metadata identifies the View definition,
+not a mapped failing statement. Multiple cleanup errors use `AggregateError`.

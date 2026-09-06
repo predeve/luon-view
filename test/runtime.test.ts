@@ -106,13 +106,13 @@ describe("state", () => {
 
 describe("computed", () => {
   test("provides typed getter and setter calls", () => {
-    let name = "Luon";
+    const data = state({ name: "Luon" });
     const computed = computedView({
-      title: () => `Hello ${name}`,
+      title: () => `Hello ${data.name}`,
       user: {
-        get: () => name,
+        get: () => data.name,
         set: (value: string) => {
-          name = value;
+          data.name = value;
         },
       },
     });

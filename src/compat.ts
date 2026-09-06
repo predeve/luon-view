@@ -1,6 +1,8 @@
 import { act, jsx, state as actState, type Child, type Component } from "@luon/act";
 
-import { addLife, withLife, type ViewLife } from "./life.ts";
+import {
+  addLife, closeLife, loadLife, withLife, type ViewLife,
+} from "./life.ts";
 import { state } from "./store.ts";
 
 export type Cell<Value> = {
@@ -110,11 +112,17 @@ export const behavior = <Element, Value>(
 
 export function scope<Value extends object>(create: () => Value) {
   const life: ViewLife = { close: [], load: [] };
-  const value = withLife(life, create);
-  for (const run of life.load) run();
-  return Object.assign(value, {
-    close: () => life.close.toReversed().forEach((run) => run()),
-  });
+  try {
+    const value = withLife(life, create);
+    loadLife(life);
+    return Object.assign(value, { close: () => closeLife(life) });
+  } catch (error) {
+    try { closeLife(life); }
+    catch (cleanup) {
+      throw new AggregateError([error, cleanup], "View scope failed.");
+    }
+    throw error;
+  }
 }
 
 export const onLoad = (run: () => void) => addLife("load", run);

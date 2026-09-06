@@ -1268,6 +1268,7 @@ function compileSingle(
   options: CompileOptions = {},
   name?: string,
   group?: GroupPart,
+  sourceId?: string,
 ): CompileResult {
   const id = options.id || "View.tsx";
   const parts = collect(source, id);
@@ -1337,7 +1338,7 @@ const __view = ${parts.view};
       return __view(__props);
     }
   };
-}, ${parts.spec ? "__spec" : "undefined"});
+}, ${parts.spec ? "__spec" : "undefined"}, ${JSON.stringify({ file: sourceId || id })});
 `;
 
   const output = ts.transpileModule(wrapped, {
@@ -1503,7 +1504,8 @@ function namedBatch(
     specs.length ? `const __specs = {\n${specs.join("\n")}\n};` : "",
     `export const {\n  ${names.join(",\n  ")},\n} = __namedViews({`,
     ...creates,
-    specs.length ? "}, (name) => __specs[name]);" : "});",
+    `}, ${specs.length ? "(name) => __specs[name]" : "undefined"}, `
+      + `${JSON.stringify({ file: id })});`,
   ].filter(Boolean).join("\n");
   const output = ts.transpileModule(source, {
     compilerOptions: {
@@ -1680,6 +1682,7 @@ export function compileView(
       { ...options, id: partId },
       named.name,
       group,
+      id,
     ).code;
     codes.push(namedModule(
       code,

@@ -1,6 +1,6 @@
 import { effect } from "@luon/act";
 
-import { addLife } from "./life.ts";
+import { addLife, currentLife, lifeCall, runLife } from "./life.ts";
 
 type Clean = (callback: () => void) => void;
 
@@ -79,6 +79,7 @@ function watchRule(
   path: string,
   input: WatchRule | WatchRun,
 ) {
+  const life = currentLife();
   const rule = typeof input === "function" ? { run: input } : input;
   const source = rule.source || (() => statePath(data, path));
   let cleanup: (() => void) | undefined;
@@ -98,14 +99,21 @@ function watchRule(
     };
   };
   const close = () => {
-    cleanup?.();
+    const run = cleanup;
     cleanup = undefined;
+    if (run) {
+      if (life) lifeCall(life, `watch.${path}.cleanup`, run);
+      else run();
+    }
   };
   const run = (next: unknown, previous: unknown) => {
     close();
-    rule.run(next, previous, (callback) => {
-      cleanup = callback;
+    const execute = () => rule.run(next, previous, (callback) => {
+      if (stopped) callback();
+      else cleanup = callback;
     });
+    if (life) lifeCall(life, `watch.${path}`, execute);
+    else execute();
     if (rule.once) {
       onceDone = true;
       stopped = true;
@@ -138,7 +146,12 @@ function watchRule(
     const initial = value();
     current = initial.next;
     snapshot = initial.snapshot;
-    stop = effect(schedule);
+    stop = effect(() => {
+      // Read dependencies synchronously; queue only the callback comparison.
+      if (life) runLife(life, `watch.${path}.source`, value);
+      else value();
+      schedule();
+    });
     if (rule.immediate) run(current, undefined);
   };
   const finish = () => {

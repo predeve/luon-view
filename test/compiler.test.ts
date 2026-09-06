@@ -317,7 +317,7 @@ describe("compileView", () => {
     expect(code).toContain("__events.close()");
     expect(code).toContain("document: { beforeinput()");
     expect(code).toContain("window: { resize()");
-    expect(code).toContain("}, __spec);");
+    expect(code).toContain("}, __spec, {");
     expect(code).toContain('{ root: "rounded-md" }');
     expect(code).toContain('{ panel: "rounded-xl" }');
     const styleIds = [...code.matchAll(
@@ -420,8 +420,8 @@ describe("compileView", () => {
     expect(code).toContain("groupScope as __groupScope");
     expect(code).toContain("const __events = __event(__eventSource)");
     expect(code).toContain('__group(__component("Dialog"');
-    expect(code).toContain('}, undefined), "Dialog", true)');
-    expect(code).toContain('}, undefined), "Dialog", false)');
+    expect(code).toContain('}, undefined, { "file": "View.tsx" }), "Dialog", true)');
+    expect(code).toContain('}, undefined, { "file": "View.tsx" }), "Dialog", false)');
     expect(code).not.toContain("export const group");
   });
 
@@ -551,7 +551,7 @@ describe("compileView", () => {
     expect(code).toContain("attrsView as __attrs");
     expect(code).toContain("const __spec = r.object({");
     expect(code).toContain("const attrs = __attrs(props, __spec)");
-    expect(code).toContain("}, __spec)");
+    expect(code).toContain("}, __spec, {");
     expect(code).not.toContain("export const spec");
   });
 

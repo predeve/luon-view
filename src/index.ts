@@ -27,12 +27,12 @@ export {
   type GroupScope,
 } from "./view.ts";
 export { attrsView, passProps, sourceView } from "./view.ts";
-export {
-  act as liveView,
-  effect as effectView,
-  untrack as untrackView,
-} from "@luon/act";
-export type { Child, Read } from "@luon/act";
+export { effectView, liveView, memoView } from "./reactive.ts";
+export { untrack as untrackView } from "@luon/act";
+export { ViewError, type ViewFrame, type ViewSource } from "./error.ts";
+import { memoView } from "./reactive.ts";
+import { currentLife, runLife } from "./life.ts";
+export type { Child, Memo, Read } from "@luon/act";
 export {
   watchView,
   type WatchDefs,
@@ -116,6 +116,7 @@ export type ComputedRule<Value = unknown> =
   | (() => Value)
   | {
       get: () => Value;
+      cache?: boolean;
       set?: (value: Value) => void;
     };
 
@@ -140,6 +141,7 @@ type ComputedInput =
   | (() => unknown)
   | {
       get: () => unknown;
+      cache?: boolean;
       set?: (...values: never[]) => void;
     };
 
@@ -150,14 +152,14 @@ export function computedView<Rules extends Record<string, ComputedInput>>(
 
   for (const [name, definition] of Object.entries(definitions)) {
     const rule = definition as ComputedRule;
-    if (typeof rule === "function") {
-      output[name] = rule;
-      continue;
-    }
-
-    output[name] = function (value?: unknown) {
-      if (arguments.length) rule.set?.(value);
-      return rule.get();
+    const life = currentLife();
+    const get = typeof rule === "function" ? rule : rule.get;
+    const run = () => life ? runLife(life, `computed.${name}`, get) : get();
+    const value = typeof rule !== "function" && rule.cache === false
+      ? run : memoView(run);
+    output[name] = function (next?: unknown) {
+      if (arguments.length && typeof rule !== "function") rule.set?.(next);
+      return value();
     };
   }
 
