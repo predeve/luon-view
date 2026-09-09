@@ -24,7 +24,8 @@ export function titleBarView(config: TitleBar) {
       });
   };
   life.load.push(() => {
-    host = typeof window === "undefined" ? undefined : window.luon;
+    host = typeof window === "undefined" ? undefined
+      : (window as Window & { luon?: Host }).luon;
     if (!host?.setTitlebar) return;
     if (!hosts.has(host)) hosts.set(host, { owners: [], queue: Promise.resolve() });
     hosts.get(host)!.owners.push(owner);
