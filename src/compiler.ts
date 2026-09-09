@@ -1,6 +1,12 @@
 import * as ts from "@typescript/typescript6";
 import { createHash } from "node:crypto";
 import { basename, extname } from "node:path";
+import { checkBinds, CompileError, failSource, sourcePoint }
+  from "./diagnostic.ts";
+import { viewSource } from "./source.ts";
+import type { ViewSource } from "./error.ts";
+export { CompileError } from "./diagnostic.ts";
+export { viewTypes } from "./editor.ts";
 
 export type CompileOptions = {
   batch?: boolean;
@@ -23,13 +29,6 @@ type GroupPart = {
   root: string;
   rootView: boolean;
 };
-
-export class CompileError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CompileError";
-  }
-}
 
 type Parts = {
   batchShared: string[];
@@ -76,10 +75,7 @@ function modifier(node: ts.Node, kind: ts.SyntaxKind) {
 }
 
 function fail(file: ts.SourceFile, node: ts.Node, message: string): never {
-  const point = file.getLineAndCharacterOfPosition(node.getStart(file));
-  throw new CompileError(
-    `${file.fileName}:${point.line + 1}:${point.character + 1} ${message}`,
-  );
+  return failSource(file, node, message);
 }
 
 function fieldName(name: ts.PropertyName) {
@@ -302,8 +298,11 @@ function collect(source: string, id: string) {
   );
   if (parse) {
     const message = ts.flattenDiagnosticMessageText(parse.messageText, "\n");
-    throw new CompileError(`${id} ${message}`);
+    throw new CompileError(message, sourcePoint(
+      file, parse.start ?? 0, parse.length,
+    ));
   }
+  checkBinds(file);
   parts.named = namedViews(file);
 
   const findStyleWrite = (node: ts.Node) => {
@@ -407,6 +406,8 @@ function collect(source: string, id: string) {
           "specs",
           "style",
           "styles",
+          "timer",
+          "titleBar",
           "watch",
         ].includes(item.name.text);
       });
@@ -550,6 +551,37 @@ function collect(source: string, id: string) {
           continue;
         }
 
+        if (isExport && name === "timer") {
+          if (!declaration.initializer
+            || !ts.isObjectLiteralExpression(declaration.initializer)) {
+            fail(file, declaration, "`timer` must be an object literal.");
+          }
+          if (parts.singles.has(name)) {
+            fail(file, declaration, "Only one timer export can be declared.");
+          }
+          const keys = new Set<string>();
+          for (const field of declaration.initializer.properties) {
+            const key = field.name && fieldName(field.name);
+            if (!key || (!ts.isPropertyAssignment(field)
+              && !ts.isShorthandPropertyAssignment(field))) {
+              fail(file, field, "`timer` requires static named timer values.");
+            }
+            if (keys.has(key)) {
+              fail(file, field, `\`timer.${key}\` is declared twice.`);
+            }
+            keys.add(key);
+          }
+          parts.singles.add(name);
+          parts.body.push(`const timer = __timer(${value});`);
+          continue;
+        }
+        if (isExport && name === "titleBar") {
+          if (!declaration.initializer) {
+            fail(file, declaration, "`titleBar` requires an initializer.");
+          }
+          parts.singles.add("titleBar");
+        }
+        if (isExport && name === "menu") parts.singles.add("menu");
         if (isExport && name === "data") {
           if (!declaration.initializer) {
             fail(file, declaration, "`data` requires an initializer.");
@@ -1269,6 +1301,7 @@ function compileSingle(
   name?: string,
   group?: GroupPart,
   sourceId?: string,
+  origin?: ViewSource,
 ): CompileResult {
   const id = options.id || "View.tsx";
   const parts = collect(source, id);
@@ -1311,6 +1344,9 @@ import {
   ` : ""}
   ${parts.deepStyles ? "deepView as __deep,\n  " : ""}
   ${parts.styleFns.size ? "dynamicView as __dynamic,\n  " : ""}
+  ${parts.singles.has("menu") ? "menuView as __menu,\n  " : ""}
+  ${parts.singles.has("titleBar") ? "titleBarView as __titleBar,\n  " : ""}
+  ${parts.singles.has("timer") ? "timerView as __timer,\n  " : ""}
   liveView as __live,
   state as __state,
   ${stateStyles ? "styleState as __styleState,\n  " : ""}
@@ -1325,6 +1361,9 @@ ${parts.deepStyles ? `const __deepId = ${JSON.stringify(deepId)};` : ""}
 export default __component(${JSON.stringify(name || componentName(id))}, (props) => {
 ${parts.spec ? "const attrs = __attrs(props, __spec);" : ""}
 ${parts.body.join("\n")}
+${parts.singles.has("titleBar") ? "__titleBar(titleBar);" : ""}
+${parts.singles.has("menu")
+    ? `__menu(${JSON.stringify(sourceId || id)}, menu);` : ""}
 ${parts.event
     ? `const __events = __event(${group ? "__eventSource" : "event"});`
     : ""}
@@ -1338,7 +1377,7 @@ const __view = ${parts.view};
       return __view(__props);
     }
   };
-}, ${parts.spec ? "__spec" : "undefined"}, ${JSON.stringify({ file: sourceId || id })});
+}, ${parts.spec ? "__spec" : "undefined"}, ${JSON.stringify(origin || viewSource(source, sourceId || id))});
 `;
 
   const output = ts.transpileModule(wrapped, {
@@ -1482,6 +1521,7 @@ function namedBatch(
   parts: Parts,
   id: string,
   options: CompileOptions,
+  origin: ViewSource,
 ): CompileResult {
   const names = parts.namedParts.map((item) => item.name);
   const creates = parts.namedParts.map((item) => (
@@ -1505,7 +1545,7 @@ function namedBatch(
     `export const {\n  ${names.join(",\n  ")},\n} = __namedViews({`,
     ...creates,
     `}, ${specs.length ? "(name) => __specs[name]" : "undefined"}, `
-      + `${JSON.stringify({ file: id })});`,
+      + `${JSON.stringify(origin)});`,
   ].filter(Boolean).join("\n");
   const output = ts.transpileModule(source, {
     compilerOptions: {
@@ -1654,7 +1694,7 @@ export function compileView(
     && !parts.pluralValues.events.size
     && !parts.pluralValues.styles.size
   ) {
-    return namedBatch(parts, id, options);
+    return namedBatch(parts, id, options, viewSource(source, id));
   }
 
   const codes: string[] = [];
@@ -1683,6 +1723,7 @@ export function compileView(
       named.name,
       group,
       id,
+      viewSource(source, id).views?.[named.name],
     ).code;
     codes.push(namedModule(
       code,

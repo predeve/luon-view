@@ -3,6 +3,27 @@ import { describe, expect, test } from "bun:test";
 import { CompileError, compileView } from "../src/compiler.ts";
 
 describe("compileView", () => {
+  test("binds timer declarations inside each default View setup", () => {
+    const code = compileView(`
+      export default () => <p />;
+      export const timer = {
+        refresh: { interval: 1000, run() { timer.refresh.stop(); } },
+      };
+    `).code;
+    expect(code).toContain("timerView as __timer");
+    expect(code.indexOf("const timer = __timer("))
+      .toBeGreaterThan(code.indexOf("export default __component("));
+    expect(code).toContain('"timer.refresh"');
+    expect(() => compileView(`
+      export const timer = [];
+      export default () => <p />;
+    `)).toThrow("object literal");
+    expect(() => compileView(`
+      export const timer = {};
+      export function Named() { return <p />; }
+    `)).toThrow("requires a default View");
+  });
+
   test("transforms reserved exports and bind options", () => {
     const source = `
       import type { ReactNode } from "react";
@@ -420,8 +441,9 @@ describe("compileView", () => {
     expect(code).toContain("groupScope as __groupScope");
     expect(code).toContain("const __events = __event(__eventSource)");
     expect(code).toContain('__group(__component("Dialog"');
-    expect(code).toContain('}, undefined, { "file": "View.tsx" }), "Dialog", true)');
-    expect(code).toContain('}, undefined, { "file": "View.tsx" }), "Dialog", false)');
+    expect(code).toContain('"file": "View.tsx"');
+    expect(code).toContain('}), "Dialog", true)');
+    expect(code).toContain('}), "Dialog", false)');
     expect(code).not.toContain("export const group");
   });
 

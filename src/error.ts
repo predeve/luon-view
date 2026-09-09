@@ -1,5 +1,9 @@
 export type ViewSource = {
   file?: string;
+  line?: number;
+  column?: number;
+  points?: Record<string, { line: number; column: number }>;
+  views?: Record<string, ViewSource>;
 };
 export type ViewFrame = ViewSource & {
   view: string;
@@ -10,9 +14,14 @@ export class ViewError extends Error {
   readonly frames: ViewFrame[];
 
   constructor(cause: unknown, frame: ViewFrame) {
+    const { points, views, ...base } = frame;
+    frame = { ...base, ...points?.[frame.phase] };
+    const location = frame.file
+      ? `${frame.file}${frame.line ? `:${frame.line}:${frame.column || 1}` : ""}`
+      : "";
     const detail = cause instanceof Error ? cause.message : String(cause);
     super(`[Luon ${frame.view} · ${frame.phase}]`
-      + `${frame.file ? ` ${frame.file}` : ""}\n${detail}`, { cause });
+      + `${location ? ` ${location}` : ""}\n${detail}`, { cause });
     this.name = "ViewError";
     this.frames = [frame,
       ...(cause instanceof ViewError ? cause.frames : [])];

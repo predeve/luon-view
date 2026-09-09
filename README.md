@@ -20,11 +20,12 @@ Luon Site authors and tools compiling the public TSX View language.
 
 ### Reserved module exports
 
-data, computed, watch, event, style, deepStyle, and default form one View definition that the compiler connects to Act.
+data, computed, watch, event, timer, style, deepStyle, and default form one View definition that the compiler connects to Act.
 
 ### Plain reactive state
 
-Objects and arrays are mutated directly. Each mounted View receives its own data instance unless state is intentionally created in module scope.
+Objects and arrays are mutated directly. Each mounted View receives its own data instance when its initializer creates a fresh object. Intentionally shared state belongs
+in a separate ordinary TypeScript module. Imported objects are not cloned.
 
 ### Compiler syntax
 
@@ -311,5 +312,160 @@ also closes only once. Reserved exports remain `event.load` and `event.close`.
 
 `ViewError.frames` identifies the original View file, name, and execution phase.
 `cause` preserves the original exception and stack, including async event,
-watch, and lifecycle rejections. File metadata identifies the View definition,
+watch, and lifecycle rejections. File, line, and column identify the handler or View definition,
 not a mapped failing statement. Multiple cleanup errors use `AggregateError`.
+
+## Editor diagnostics
+
+`compileView` errors expose `location` with file, one-based line/column, and
+UTF-16 start/length when the original location is known. The Core editor checks
+the current buffer before the general linter and highlights invalid View syntax.
+Typed default props and computed getter results participate in completion through
+virtual declarations; saved source is unchanged. Read-only computed values throw
+on writes. See the [state ownership guide](https://docs.luon.dev/frontend/state-watch).
+
+## Declarative timers
+
+Declare named timers with `export const timer` in a default View. Each mounted
+instance gets independent controls and cleanup, including when the same View
+is mounted more than once. No timer import or timer ID is needed.
+
+```tsx
+export const data = { ticks: 0 };
+
+export default () => (
+  <section>
+    <p>Ticks: {data.ticks}</p>
+    <button onClick={() => timer.refresh.start()}>Start</button>
+    <button onClick={() => timer.refresh.stop()}>Stop</button>
+  </section>
+);
+
+export const timer = {
+  refresh: {
+    interval: 1_000,
+    run() { data.ticks++; },
+  },
+};
+```
+
+| Setting | Behavior |
+| --- | --- |
+| `interval` | Repeat at this interval in milliseconds |
+| `timeout` | Run once after this delay in milliseconds |
+| `active` | Start automatically on View load; defaults to `true` |
+| `run` | Function to execute; may return a Promise |
+
+Set exactly one of `interval` or `timeout`. Delays must be finite numbers
+between 0 and 2,147,483,647 milliseconds. The first callback runs after the
+specified delay, not immediately. Call your work function separately if an
+immediate initial result is needed. Use static timer names without object spreads or computed keys.
+Timer declarations require a default View;
+there is no plural `timers` export for named-only modules.
+
+### Manual control and async setup
+
+Use `active: false` when the timer should wait for a connection, playback,
+or another condition. `start()` and `stop()` control an individual timer;
+`event.load` and `event.close` remain the View lifecycle names.
+
+```tsx
+export const timer = {
+  refresh: {
+    interval: 1_500,
+    active: false,
+    async run() { await refresh(); },
+  },
+  reconnect: {
+    timeout: 2_000,
+    active: false,
+    run: connect,
+  },
+};
+
+export const event = {
+  async load() {
+    await connect();
+    timer.refresh.start();
+  },
+};
+
+function disconnected() {
+  timer.refresh.stop();
+  timer.reconnect.start();
+}
+```
+
+Automatic timers do not wait for an async `event.load` to finish. Use the
+manual pattern above when setup must complete first.
+
+Here `connect` and `refresh` are application functions. Controls are bound to
+their View instance, so they also work after `await` and in external callbacks.
+If the View closes during `connect()`, the later `start()` is a no-op.
+
+- Repeated `start()` calls keep the existing schedule without duplicating it
+  or resetting its delay. To reset a pending delay, call `stop()` then `start()`.
+- Repeated `stop()` calls are safe. Calling `stop()` before load also disables
+  the pending automatic start.
+- `timer.refresh.active` is a read-only status for an existing schedule.
+  Change execution with `start()` and `stop()`, not property assignment. It is
+  not reactive UI state. A one-shot timer becomes inactive when its call starts.
+- While an async callback is running, further ticks for that timer are skipped;
+  they are not queued. Return or await the Promise so Luon can track it. A
+  detached `void refresh()` cannot be tracked. Other timers remain independent.
+- `stop()` cancels future callbacks, not a running callback or API request.
+  Restarting does not allow overlap with a callback still in progress.
+- View close cancels its timers and suppresses callbacks queued before close.
+  A closed View cannot restart them. Native timers and sibling Views continue.
+- Callback errors retain the View source and `timer.<name>` execution phase.
+
+Keep other cleanup, such as closing a socket or disposing an editor, in
+`event.close`. Download resource cleanup, request deadlines, and awaited
+sequential delays may have a lifetime different from the View; do not convert
+them into View timers solely because they use `setTimeout`.
+
+## View-owned timers
+
+For dynamic registrations in shared helpers, use
+`timer.timeout(callback, milliseconds)` for one delayed call and
+`timer.interval(callback, milliseconds)` for repeated calls. Luon provides
+`timer` automatically in application Views. Package helpers can import it
+from `@luon/view`. These helpers are separate from named declarations.
+In a file declaring `export const timer`, import the helpers under another
+name, such as `import { timer as viewTimer } from "@luon/view"`.
+
+```tsx
+export const data = { ticks: 0 };
+
+export const event = {
+  load() {
+    timer.interval(() => data.ticks++, 1_000);
+  },
+};
+
+export default () => <p>Ticks: {data.ticks}</p>;
+```
+
+No `event.close` entry is needed for these timers. Each registration belongs
+to the current View scope. Closing one popup or component instance cancels
+only that instance's timers; sibling Views and ordinary `setTimeout` and
+`setInterval` calls remain untouched.
+
+Both methods return an idempotent cancel function for earlier cancellation:
+
+```ts
+const cancel = timer.timeout(() => console.log("Ready"), 2_000);
+cancel();
+```
+
+Register during synchronous setup, render, `event.load`, or a View event
+callback. Timers created during render are canceled when that render is
+replaced. Setup/load timers live until their owning instance closes. A timer
+callback can create more owned timers before `await`; they inherit its owner.
+Calls outside an active View, after `await`, or during cleanup fail explicitly.
+
+Completion and manual cancellation release the timer's cleanup entry. Closing
+also suppresses a callback that was queued but has not started. Canceling a
+timer does not interrupt an already-running callback or abort its API request.
+Async interval callbacks retain native interval behavior and can overlap;
+use request cancellation or a separate task scheduler when needed.

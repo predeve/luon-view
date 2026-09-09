@@ -21,6 +21,35 @@ declare global {
   interface Window {
     luon?: {
       setIcon(name: string): void;
+      showMcp?(): void;
+      setTitlebar?(enabled: boolean): Promise<{
+        enabled: boolean; left: number; right: number; height: number;
+      }>;
+      browser?: {
+        version?: number;
+        background?: boolean;
+        window?(action: "minimize" | "maximize" | "close" | "drag"): void;
+        control?(options: {
+          enabled: boolean; portStart: number; portEnd: number;
+        }): void;
+        emit?(event: string, params: Record<string, unknown>): void;
+        create?(options: { id: string; independent?: boolean }): void;
+        overlay?(visible: boolean): void;
+        snapshot?(id: string): Promise<{ data: string }>;
+        mount(rect: {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          background?: boolean;
+        }, id?: string): void;
+        open(url: string, id?: string): void;
+        back(id?: string): void;
+        forward(id?: string): void;
+        reload(id?: string, options?: { ignoreCache?: boolean }): void;
+        close(id?: string): void;
+        setTheme?(theme: "light" | "dark" | "system"): void;
+      };
     };
   }
 }

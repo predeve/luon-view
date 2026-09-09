@@ -1,3 +1,8 @@
+export { titleBarView } from "./titlebar.ts";
+export type { TitleBar } from "./titlebar.ts";
+export { timer, timerView } from "./timer.ts";
+export type { TimerControl, TimerRule, Timers } from "./timer.ts";
+export { menuView, viewMenus } from "./menu.ts";
 export { bindView } from "./model.ts";
 export { classText, type ClassValue } from "./class.ts";
 export { state } from "./store.ts";
@@ -158,7 +163,16 @@ export function computedView<Rules extends Record<string, ComputedInput>>(
     const value = typeof rule !== "function" && rule.cache === false
       ? run : memoView(run);
     output[name] = function (next?: unknown) {
-      if (arguments.length && typeof rule !== "function") rule.set?.(next);
+      if (arguments.length) {
+        const write = () => {
+          if (typeof rule === "function" || !rule.set) {
+            throw new Error(`Computed \`${name}\` is read-only. Add a setter.`);
+          }
+          rule.set(next);
+        };
+        if (life) runLife(life, `computed.${name}`, write);
+        else write();
+      }
       return value();
     };
   }

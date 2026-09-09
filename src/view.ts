@@ -490,7 +490,9 @@ export function componentView<
 ) {
   const View = (props: Props) => {
     const input = propView(props, spec) as Props & ShapeOutput<Shape>;
-    const frame = { view: name, ...source, phase: "setup" };
+    const frame = {
+      view: name, ...(source?.views?.[name] || source), phase: "setup",
+    };
     const life: ViewLife = { close: [], load: [], frame };
     let rendered: ViewLife | undefined;
     let scope: ViewScope<Props>;
