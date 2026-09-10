@@ -24,6 +24,22 @@ Luon compiles this syntax automatically. In a standalone Bun build, register
 Read the implementation: [compiler](src/compiler.ts) ·
 [reactivity](src/reactive.ts).
 
+Named requests use the same small declaration style:
+
+```tsx
+export const api = {
+  users: { url: "/users" },
+  save: { url: "/users", method: "POST" },
+};
+
+async function save() {
+  await api.save({ name: "Luon" });
+}
+```
+
+The default base is `/api`, with same-origin cookies, JSON headers, and a
+5-second timeout. Common and per-endpoint settings are optional.
+
 ## The engine at the center of Luon
 
 **View brings Luon's building blocks together into one screen authoring
@@ -59,7 +75,7 @@ Luon Site authors and tools compiling the public TSX View language.
 
 ### Reserved module exports
 
-data, computed, watch, event, timer, style, deepStyle, and default form one View definition that the compiler connects to Act.
+data, computed, watch, event, timer, api, style, deepStyle, and default form one View definition that the compiler connects to Act.
 
 ### Plain reactive state
 
@@ -505,6 +521,113 @@ also suppresses a callback that was queued but has not started. Canceling a
 timer does not interrupt an already-running callback or abort its API request.
 Async interval callbacks retain native interval behavior and can overlap;
 use request cancellation or a separate task scheduler when needed.
+
+## Named API calls
+
+Declare requests once, then call them by name. `config` is optional.
+
+```tsx
+export const api = {
+  users: { url: "/users" },
+  save: { url: "/users", method: "POST" },
+};
+
+export const data = { name: "", saved: false };
+
+async function save() {
+  await api.save({ name: data.name });
+  data.saved = true;
+}
+
+export default () => <>
+  <input bind={data.name} />
+  <button onClick={save}>Save</button>
+  {data.saved && <p>Saved.</p>}
+</>;
+```
+
+Without `config`, every endpoint uses these defaults:
+
+```ts
+config: {
+  base: "/api",
+  cookie: true,
+  timeout: 5000,
+  headers: { Accept: "application/json" },
+}
+```
+
+Endpoint settings override common `api.config` settings, which override the
+built-in defaults. Header keys merge case-insensitively. Formatting is left to
+Oxfmt; declarations do not need to fit on one line.
+
+```tsx
+export const api = {
+  config: {
+    base: "/api",
+    timeout: 8000,
+    headers: { "X-App": "dashboard" },
+    onError(error: unknown) { console.error(error); },
+  },
+  users: { url: "/users" },
+  save: { url: "/users/:id", method: "PATCH", timeout: 3000 },
+};
+
+async function example() {
+  const users = await api.users<{ items: { id: number }[] }>({ page: 2 });
+  await api.save({ name: "Luon" }, { params: { id: users.items[0].id } });
+}
+```
+
+- `base`: `/api` by default. Relative endpoint paths append to this base.
+  An absolute HTTP(S) URL bypasses it. Use `base: ""` for origin-root paths.
+- `cookie`: `true` sends same-origin cookies; `false` omits credentials.
+  Explicit `"include"` also allows cross-origin credentials, subject to the
+  destination server's CORS policy and browser cookie rules.
+- `timeout`: milliseconds for the whole request, including reading its body.
+  Default `5000`; `0` means an immediate timeout, not an unlimited request.
+- `headers`: merged request headers. JSON writes add `Content-Type` only when
+  it has not been set explicitly.
+- `onError`: optional common error notification, overridable per endpoint.
+  Errors still reject the call. Expected owner/caller cancellation skips this
+  notification; timeouts notify it.
+
+`api.name(data?, { params?, signal? }?)` returns the parsed response. GET/HEAD
+turn the data object into query parameters, omitting null and undefined values;
+other methods send JSON. `:id` path parameters are encoded automatically.
+HTTP errors carry `status` and parsed `data`. Empty responses return `undefined`;
+JSON responses are parsed, other responses return text. The optional generic
+response type is a TypeScript assertion, not runtime validation.
+
+Each View instance owns its in-flight requests and aborts them when it closes.
+Calls after closure reject. A supplied signal also cancels the request.
+Requests are not automatically retried, cached, or started at declaration time.
+KeepAlive retains requests until eviction or owner closure, like resources.
+For files, streaming, or raw Response access, use `fetch` directly.
+
+Use a resource when the screen needs loading/error/result state:
+
+```tsx
+export const api = { profile: { url: "/profile" } };
+export const resource = {
+  profile: {
+    load({ signal }: { signal: AbortSignal }) {
+      return api.profile<{ name: string }>(undefined, { signal });
+    },
+  },
+};
+
+export default () => <Await value={resource.profile}
+  pending={() => <p>Loading…</p>} error={() => <p>Could not load.</p>}>
+  {(profile) => <h2>{profile.name}</h2>}
+</Await>;
+```
+
+Standalone projects import `Await` from `@luon/view`. For manually constructed
+Views, call `apiView({ ... })` inside `componentView` setup; it also exposes
+callable TypeScript types. Raw `export const api` declarations require the View
+compiler, and Luon's editor supplies their callable types through `viewTypes`.
+Shared stores, server modules, and hooks can continue using `$fetch`/`fetch`.
 
 ## Transitions, resources, and cached Views
 

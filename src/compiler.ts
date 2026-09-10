@@ -391,6 +391,7 @@ function collect(source: string, id: string) {
       const reserved = declarations.find((item) => {
         if (!ts.isIdentifier(item.name)) return false;
         return [
+          "api",
           "computed",
           "config",
           "data",
@@ -552,6 +553,18 @@ function collect(source: string, id: string) {
           continue;
         }
 
+        if (isExport && name === "api") {
+          if (!declaration.initializer
+            || !ts.isObjectLiteralExpression(declaration.initializer)) {
+            fail(file, declaration, "`api` must be an object literal.");
+          }
+          if (parts.singles.has(name)) {
+            fail(file, declaration, "Only one api export is allowed.");
+          }
+          parts.singles.add(name);
+          parts.body.push(`const api = __api(${value});`);
+          continue;
+        }
         if (isExport && name === "resource") {
           if (!declaration.initializer
             || !ts.isObjectLiteralExpression(declaration.initializer)) {
@@ -1383,6 +1396,7 @@ import {
   ${parts.styleFns.size ? "dynamicView as __dynamic,\n  " : ""}
   ${parts.singles.has("menu") ? "menuView as __menu,\n  " : ""}
   ${parts.singles.has("titleBar") ? "titleBarView as __titleBar,\n  " : ""}
+  ${parts.singles.has("api") ? "apiView as __api,\n  " : ""}
   ${parts.singles.has("resource") ? "resourceView as __resource,\n  " : ""}
   ${parts.singles.has("timer") ? "timerView as __timer,\n  " : ""}
   liveView as __live,

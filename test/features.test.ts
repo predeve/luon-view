@@ -146,3 +146,41 @@ test("fade delays removal and owner cleanup cancels pending animations", async (
     dom.Element.prototype.animate = original;
   }
 });
+
+test("compiled API integrates with resource reload and closes its requests", async () => {
+  const original = globalThis.fetch;
+  const requests: Array<{ signal: AbortSignal; resolve(value: Response): void }>
+    = [];
+  globalThis.fetch = ((_url: unknown, init: RequestInit) =>
+    new Promise<Response>(resolve => {
+      requests.push({ signal: init.signal!, resolve });
+    })) as typeof fetch;
+  const app = await fixture(`
+    import { Await } from "@luon/view";
+    export const api = { profile: { url: "/profile" } };
+    export const resource = {
+      profile: { load: ({ signal }) => api.profile(undefined, { signal }) },
+    };
+    export default () => <div>
+      <button onClick={() => resource.profile.reload()}>Reload</button>
+      <Await value={resource.profile} pending={() => <p>Waiting</p>}>
+        {(value) => <p>{value.name}</p>}
+      </Await>
+    </div>;
+  `);
+  try {
+    app.root.querySelector("button")!.click();
+    expect(requests[0]!.signal.aborted).toBe(true);
+    requests[0]!.resolve(Response.json({ name: "Stale" }));
+    requests[1]!.resolve(Response.json({ name: "Luon" }));
+    await tick();
+    expect(app.root.textContent).toContain("Luon");
+    expect(app.root.textContent).not.toContain("Stale");
+    app.root.querySelector("button")!.click();
+  } finally {
+    await app.close();
+    globalThis.fetch = original;
+    for (const request of requests) request.resolve(Response.json({}));
+  }
+  expect(requests.at(-1)!.signal.aborted).toBe(true);
+});

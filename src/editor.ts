@@ -6,6 +6,8 @@ export function viewTypes(source: string, id: string) {
     true, ts.ScriptKind.TSX);
   const extra: string[] = [];
   let computed: ts.Identifier | undefined;
+  let api: ts.Identifier | undefined;
+  const apiKeys: string[] = [];
   let timer: ts.Identifier | undefined;
   const timerKeys: string[] = [];
   let props: ts.TypeNode | undefined;
@@ -18,6 +20,19 @@ export function viewTypes(source: string, id: string) {
         if (!ts.isIdentifier(item.name)) continue;
         if (item.name.text === "props") hasProps = true;
         if (exported && item.name.text === "computed") computed = item.name;
+        if (exported && item.name.text === "api") {
+          api = item.name;
+          if (item.initializer
+            && ts.isObjectLiteralExpression(item.initializer)) {
+            for (const field of item.initializer.properties) {
+              if (!field.name || ts.isComputedPropertyName(field.name)) continue;
+              const key = field.name.getText(file);
+              if (!["config", "\"config\"", "'config'"].includes(key)) {
+                apiKeys.push(key);
+              }
+            }
+          }
+        }
         if (exported && item.name.text === "timer") {
           timer = item.name;
           if (item.initializer
@@ -48,11 +63,11 @@ export function viewTypes(source: string, id: string) {
     }
   }
   for (const [node, type] of [
-    [computed, "Computed"], [timer, "Timers"],
+    [computed, "Computed"], [timer, "Timers"], [api, "Apis"],
   ] as const) {
     if (!node) continue;
     let index = 0;
-    const prefix = node === timer ? "_tm" : "_luon";
+    const prefix = node === api ? "_a" : node === timer ? "_tm" : "_luon";
     const width = node.text.length - prefix.length;
     let alias = prefix + "0".repeat(width);
     while (source.includes(alias)) {
@@ -61,7 +76,11 @@ export function viewTypes(source: string, id: string) {
     if (alias.length === node.text.length) {
       const start = node.getStart(file);
       source = source.slice(0, start) + alias + source.slice(node.end);
-      if (node === timer) {
+      if (node === api) {
+        const fields = apiKeys.map(key => `readonly ${key}: `
+          + 'import("@luon/view").ApiCall;');
+        extra.push(`declare const api: { ${fields.join(" ")} };`);
+      } else if (node === timer) {
         // Keys have fixed control types, independent of self-referencing run.
         const fields = timerKeys.map(key => `readonly ${key}: `
           + 'import("@luon/view").TimerControl;');

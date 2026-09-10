@@ -1,6 +1,6 @@
 {
   "name": "@luon/view",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Luon View compiler and Act runtime",
   "license": "MIT",
   "keywords": [

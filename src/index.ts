@@ -1,3 +1,6 @@
+export { apiView } from "./api.ts";
+export type { ApiCall, ApiConfig, ApiOptions, ApiRule, Apis }
+  from "./api.ts";
 export type { Transition } from "./transition.ts";
 export { KeepAlive } from "./keep.ts";
 export { Await, resourceView, type Resource, type Resources }
