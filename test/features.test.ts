@@ -185,15 +185,15 @@ test("compiled API integrates with resource reload and closes its requests", asy
   expect(requests.at(-1)!.signal.aborted).toBe(true);
 });
 
-test("compiled persist restores before computed and load on remount", async () => {
-  const prior = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-  Object.defineProperty(globalThis, "localStorage", {
-    value: dom.localStorage, configurable: true,
+test("compiled session persist restores before computed and load on remount", async () => {
+  const prior = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "sessionStorage", {
+    value: dom.sessionStorage, configurable: true,
   });
-  dom.localStorage.clear();
+  dom.sessionStorage.clear();
   const source = `
     export const persist = {
-      preferences: { fields: ["theme"], expire: (3600 * 12) },
+      preferences: { fields: ["theme"], storage: "session", expire: (3600 * 12) },
     };
     export const data = { theme: "dark", loaded: "" };
     export const computed = { label: () => data.theme.toUpperCase() };
@@ -224,8 +224,43 @@ test("compiled persist restores before computed and load on remount", async () =
   } finally {
     close?.(); root.remove();
     await rm(dir, { recursive: true });
-    dom.localStorage.clear();
-    if (prior) Object.defineProperty(globalThis, "localStorage", prior);
-    else Reflect.deleteProperty(globalThis, "localStorage");
+    dom.sessionStorage.clear();
+    if (prior) Object.defineProperty(globalThis, "sessionStorage", prior);
+    else Reflect.deleteProperty(globalThis, "sessionStorage");
+  }
+});
+
+test("cookie writes update a separate compiled View without its own declaration", async () => {
+  const { cookie } = await import("../src/cookie.ts");
+  const prior = Object.getOwnPropertyDescriptor(globalThis, "cookie");
+  Object.defineProperty(globalThis, "cookie", { value: cookie, configurable: true });
+  let reader: Awaited<ReturnType<typeof fixture>> | undefined;
+  let writer: Awaited<ReturnType<typeof fixture>> | undefined;
+  try {
+    reader = await fixture(`
+      export default () => <p>{cookie.viewLanguage ?? "missing"}</p>;
+    `);
+    expect(reader.root.textContent).toBe("missing");
+    writer = await fixture(`
+      export const cookie = {
+        viewLanguage: { value: "en", expire: (3600 * 12) },
+      };
+      export default () => <button onClick={() => cookie.viewLanguage = "ko"}>
+        {cookie.viewLanguage}
+      </button>;
+    `);
+    expect(reader.root.textContent).toBe("en");
+    writer.root.querySelector("button")!.click();
+    await tick();
+    expect(reader.root.textContent).toBe("ko");
+    expect(writer.root.textContent?.trim()).toBe("ko");
+    await writer.close(); writer = undefined;
+    expect(reader.root.textContent).toBe("ko");
+    cookie.viewLanguage = null;
+    expect(reader.root.textContent).toBe("missing");
+  } finally {
+    await writer?.close(); await reader?.close();
+    if (prior) Object.defineProperty(globalThis, "cookie", prior);
+    else Reflect.deleteProperty(globalThis, "cookie");
   }
 });

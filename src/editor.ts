@@ -5,6 +5,7 @@ export function viewTypes(source: string, id: string) {
   const file = ts.createSourceFile(id, source, ts.ScriptTarget.Latest,
     true, ts.ScriptKind.TSX);
   const extra: string[] = [];
+  let cookie: ts.Identifier | undefined;
   let computed: ts.Identifier | undefined;
   let api: ts.Identifier | undefined;
   const apiKeys: string[] = [];
@@ -19,6 +20,7 @@ export function viewTypes(source: string, id: string) {
       for (const item of node.declarationList.declarations) {
         if (!ts.isIdentifier(item.name)) continue;
         if (item.name.text === "props") hasProps = true;
+        if (exported && item.name.text === "cookie") cookie = item.name;
         if (exported && item.name.text === "computed") computed = item.name;
         if (exported && item.name.text === "api") {
           api = item.name;
@@ -64,10 +66,12 @@ export function viewTypes(source: string, id: string) {
   }
   for (const [node, type] of [
     [computed, "Computed"], [timer, "Timers"], [api, "Apis"],
+    [cookie, "Cookies"],
   ] as const) {
     if (!node) continue;
     let index = 0;
-    const prefix = node === api ? "_a" : node === timer ? "_tm" : "_luon";
+    const prefix = node === cookie ? "_ck" : node === api ? "_a"
+      : node === timer ? "_tm" : "_luon";
     const width = node.text.length - prefix.length;
     let alias = prefix + "0".repeat(width);
     while (source.includes(alias)) {

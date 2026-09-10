@@ -5,14 +5,17 @@ import { closeLife, withLife, type ViewLife } from "../src/life.ts";
 import { compileView } from "../src/compiler.ts";
 
 const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const session = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
 const lives: ViewLife[] = [];
 afterEach(() => {
   for (const life of lives.splice(0)) closeLife(life);
   setSystemTime();
   if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
   else Reflect.deleteProperty(globalThis, "localStorage");
+  if (session) Object.defineProperty(globalThis, "sessionStorage", session);
+  else Reflect.deleteProperty(globalThis, "sessionStorage");
 });
-function memory() {
+function memory(area: "localStorage" | "sessionStorage" = "localStorage") {
   const values = new Map<string, string>();
   let writes = 0;
   const storage = {
@@ -25,7 +28,7 @@ function memory() {
       values.set(key, value);
     },
   };
-  Object.defineProperty(globalThis, "localStorage", {
+  Object.defineProperty(globalThis, area, {
     value: storage,
     configurable: true,
   });
@@ -280,4 +283,139 @@ test("expiry requires numeric positive whole seconds in source and manual API", 
   app.close();
   setSystemTime(Date.now() + 3600 * 12 * 1000);
   expect(setup({ name: "Kim" }, rules).data.name).toBe("Kim");
+});
+
+test("whole data is explicit, includes new keys, and cannot overlap groups", () => {
+  const store = memory();
+  const first = state<Record<string, unknown>>({ theme: "dark", name: "Kim" });
+  const life = { load: [], close: [] };
+  lives.push(life);
+  withLife(life, () => persistView(first, { preferences: first }, "whole"));
+  first.theme = "light";
+  first.extra = { open: true };
+  closeLife(life);
+  const second = state<Record<string, unknown>>({ theme: "dark", name: "Kim" });
+  const next = { load: [], close: [] };
+  lives.push(next);
+  withLife(next, () => persistView(second, { preferences: second }, "whole"));
+  expect(second).toEqual({
+    theme: "light",
+    name: "Kim",
+    extra: { open: true },
+  });
+  expect(() =>
+    withLife(next, () =>
+      persistView(
+        second,
+        {
+          preferences: second,
+          profile: ["name"],
+        },
+        "whole",
+      ),
+    ),
+  ).toThrow("overlap");
+  const before = store.writes();
+  withLife(next, () => persistView(second, {}, "empty"));
+  expect(store.writes()).toBe(before);
+  expect(
+    compileView(`export const data = { name: "Kim" };
+    export const persist = { preferences: data };
+    export default () => null;`).code,
+  ).toContain("preferences: data");
+  expect(() =>
+    compileView(`export const data = { name: "Kim" };
+    export const persist = { preferences: data, profile: ["name"] };
+    export default () => null;`),
+  ).toThrow("overlap");
+});
+
+test("local and session entries stay separate and session expiry removes only its entry", () => {
+  const local = memory();
+  const session = memory("sessionStorage");
+  const start = 1_800_000_000_000;
+  setSystemTime(start);
+  const localRules = {
+    profile: { fields: ["name"], storage: "local" },
+  } as const;
+  const rules = {
+    profile: { fields: ["name"], storage: "session", expire: 60 },
+  } as const;
+  const a = setup({ name: "initial" }, localRules);
+  const b = setup({ name: "initial" }, rules);
+  a.data.name = "local";
+  b.data.name = "session";
+  a.close();
+  b.close();
+  expect(local.values.size).toBe(1);
+  expect(session.values.size).toBe(1);
+  const key = [...session.values.keys()][0]!;
+  const saved = session.values.get(key);
+  setSystemTime(start + 59000);
+  const reopen = setup({ name: "initial" }, rules);
+  expect(reopen.data.name).toBe("session");
+  expect(session.values.get(key)).toBe(saved);
+  reopen.close();
+  setSystemTime(start + 60000);
+  expect(setup({ name: "initial" }, rules).data.name).toBe("initial");
+  expect(session.values.size).toBe(0);
+  expect(setup({ name: "initial" }, { profile: ["name"] }).data.name).toBe(
+    "local",
+  );
+  expect(local.values.size).toBe(1);
+});
+
+test("mixed groups use their own areas and a blocked local area leaves session working", () => {
+  const local = memory();
+  const session = memory("sessionStorage");
+  const rules = {
+    preferences: ["theme"],
+    profile: { fields: ["name"], storage: "session" },
+  } as const;
+  const first = setup({ theme: "dark", name: "Kim" }, rules);
+  first.data.theme = "light";
+  first.data.name = "Jane";
+  first.close();
+  expect(local.values.size).toBe(1);
+  expect(session.values.size).toBe(1);
+  session.values.clear();
+  const next = setup({ theme: "dark", name: "Kim" }, rules);
+  expect(next.data).toEqual({ theme: "light", name: "Kim" });
+  next.close();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new Error("Blocked");
+    },
+  });
+  const blocked = setup({ theme: "dark", name: "Kim" }, rules);
+  blocked.data.name = "Session works";
+  blocked.close();
+  expect(setup({ theme: "dark", name: "Kim" }, rules).data.name).toBe(
+    "Session works",
+  );
+});
+
+test("storage accepts only local or session and compiles the session option", () => {
+  memory();
+  memory("sessionStorage");
+  for (const storage of ["both", ["local", "session"], false, null]) {
+    expect(() =>
+      setup(
+        { name: "Kim" },
+        {
+          profile: { fields: ["name"], storage: storage as "local" },
+        },
+      ),
+    ).toThrow("local or session");
+  }
+  const source = (storage: string) => `export const data = { name: "Kim" };
+    export const persist = {
+      profile: { fields: ["name"], storage: ${storage}, expire: 3600 * 12 },
+    };
+    export default () => null;`;
+  expect(compileView(source('"session"')).code).toContain('storage: "session"');
+  for (const value of ['"both"', '["local", "session"]']) {
+    expect(() => compileView(source(value))).toThrow("local or session");
+  }
 });

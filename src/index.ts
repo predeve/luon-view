@@ -1,3 +1,5 @@
+export { cookie, cookieView, type CookieRule, type Cookies }
+  from "./cookie.ts";
 export { persistView, type Persist } from "./persist.ts";
 export { apiView } from "./api.ts";
 export type { ApiCall, ApiConfig, ApiOptions, ApiRule, Apis }

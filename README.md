@@ -582,9 +582,12 @@ export const persist = {
   value; memory state continues to work. An undefined/deleted top-level field
   is omitted, so the next mount uses its declared default.
 - Each field must exist in `data` and appear in only one group. Compiled
-  declarations require static group keys and nonempty arrays of field names.
-  A group may also use `{ fields, expire }` for expiration in seconds.
-- Persistence uses `localStorage` in the current browser/WebView profile.
+  declarations require static group keys and nonempty arrays of field names,
+  or an explicit `data` reference for whole-data storage.
+  A group may also use `{ fields, storage, expire }` to select its storage
+  area and expiration in seconds.
+- Persistence uses the selected `localStorage` or `sessionStorage` area in
+  the current browser/WebView profile; the default is `localStorage`.
   Its namespace includes the document base path, View source path, and group
   key. Different sites/origins, Views, and groups do not share stored values.
   Within Luon projects the View path is relative to `app/`, so changing the
@@ -602,6 +605,59 @@ For manual View setup, use
 `persistView(data, { preferences: ["theme"] }, "settings")` inside
 `componentView`. `data` must be reactive state. The typed `Persist<typeof data>`
 helper can check field names in manual code.
+
+### Choose the storage area
+
+Set `storage` to either `"local"` or `"session"`. Omission defaults to `"local"`;
+the array shorthand and `preferences: data` also use local storage.
+
+```tsx
+export const persist = {
+  preferences: ["theme"],
+  profile: {
+    fields: ["name"],
+    storage: "session",
+    expire: 3600 * 12,
+  },
+};
+```
+
+- `"local"` uses `localStorage` in the current browser/WebView profile and can
+  survive closing and reopening the browser until cleared or expired.
+- `"session"` uses `sessionStorage`: it survives page navigation and reloads in
+  the same tab's session. It normally ends when that tab/window session ends;
+  browser session restoration may retain it. It is not a per-login session.
+- `expire` works in either area. Storage clearing or session termination can
+  remove a value before its configured expiry. Reading or reopening never
+  extends the timestamp.
+
+Choose one area per group, not an array of both. Different groups can choose
+different areas, while the existing no-overlapping-fields rule still applies.
+Changing a group's `storage` reads the selected area's entry; it neither migrates
+nor deletes the previous area's value. A blocked area does not disable groups
+using another available area. This option belongs to `persist`, not `cookie`.
+
+### Explicit whole-data storage
+
+Use the actual `data` object to save all its JSON fields:
+
+```tsx
+export const data = { theme: "dark", name: "mr.kim" };
+export const persist = { preferences: data };
+```
+
+This includes new top-level fields added later. Nested changes are saved as with
+selected fields. The group has no expiry. Whole-data storage cannot be combined
+with another group, because their fields would overlap. To give fields different
+lifetimes, use separate explicit field lists instead. `export const persist = {}`
+saves nothing; omitting `persist` also saves nothing. There is no implicit
+whole-data mode. Include temporary values such as `loading` only if restoring
+them is intended.
+
+`persist` configures storage for this View's `data`; continue reading and writing
+through `data`. It is not a global storage reader. Use a shared `store` when
+several screens need to share live state, with the store's persistence option
+when that shared state should survive reopening.
 
 ### Expiration in seconds
 
@@ -644,6 +700,70 @@ Existing undated storage from older View releases remains readable for groups
 without expiration. If expiration is added to such a group, its unknown-age
 value is discarded rather than treated as freshly saved. Timestamped entries
 keep their original save time across upgrades and ordinary reopening.
+
+## Browser cookies
+
+Read an accessible cookie from any Luon TSX without a declaration:
+
+```tsx
+export default () => <p>{cookie.language ?? "en"}</p>;
+```
+
+Reading never creates a cookie or extends its lifetime. Missing cookies return
+`null`. Cookie values are strings; reads decode percent-encoded values.
+
+Declare settings where the application owns the cookie:
+
+```tsx
+export const cookie = {
+  language: {
+    value: "en",
+    expire: 86400 * 30,
+  },
+};
+
+export default () => <>
+  <button onClick={() => cookie.language = "ko"}>Korean</button>
+  <button onClick={() => cookie.language = null}>Remove preference</button>
+  <p>{cookie.language ?? "No preference"}</p>
+</>;
+```
+
+An existing accessible cookie takes precedence over `value`. If it is missing,
+the initial value is written. Omit `value` to register settings without creating
+anything. `expire` is a positive integer in seconds; normal numeric expressions
+such as `3600 * 12` are accepted. It becomes the browser's `Max-Age` attribute.
+Omitting it creates a session cookie, whose lifetime follows browser session
+and session-restore policy. Reading, remounting, and assigning an unchanged value
+do not extend expiration. Changing the value starts a new lifetime.
+
+Assignments write immediately and percent-encode values. Assign `null` to delete
+using the same cookie scope. Cookie declarations register write settings for
+the current document. Other TSX files can read the cookie without declaring it;
+local writes update cookie readers reactively, including computed values and
+bindings. A write requires settings to have been declared in that document.
+After navigation that keeps the same document, settings remain registered;
+a full document reload requires the writing screen to register them again.
+If the same name is declared again, its latest settings control future writes.
+
+Cookies use their declared names with `Path=/`, `SameSite=Lax`, no `Domain`
+attribute, and `Secure` on HTTPS pages. Actual visibility follows browser cookie
+host/path rules, not View source paths. Use distinct names for different purposes;
+avoid colliding with cookies owned by the server or another path.
+
+The browser controls expiry and may reject or remove cookies. Getters return
+currently accessible browser values. Changes through this API notify current
+readers; server writes, automatic expiry, or another tab do not cause a reactive
+notification by themselves and become visible on the next read/render. There is
+no cookie polling or cross-tab state store. Client-side code cannot read or
+manage `HttpOnly` cookies; those remain server-owned. Cookie requests still follow
+the browser's credential, SameSite and Secure rules.
+
+`cookie` is built into Luon client code. Standalone projects import `cookie` from
+`@luon/view` for reads, or call `cookieView({ ... })` during manual View setup.
+`export const cookie` requires the View compiler; Luon's editor exposes its
+properties as writable `string | null` values, not configuration objects.
+This is a browser API, not a server request cookie helper.
 
 ## Named API calls
 

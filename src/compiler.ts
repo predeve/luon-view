@@ -393,6 +393,7 @@ function collect(source: string, id: string) {
         if (!ts.isIdentifier(item.name)) return false;
         return [
           "persist",
+          "cookie",
           "api",
           "computed",
           "config",
@@ -569,6 +570,13 @@ function collect(source: string, id: string) {
               fail(file, field, "`persist` requires static group keys.");
             }
             let fields: ts.Expression = field.initializer;
+            if (ts.isIdentifier(fields) && fields.text === "data") {
+              if (declaration.initializer.properties.length > 1) {
+                fail(file, field,
+                  "Whole data persistence cannot overlap another group.");
+              }
+              continue;
+            }
             if (ts.isObjectLiteralExpression(fields)) {
               let list: ts.Expression | undefined;
               const keys = new Set<string>();
@@ -579,11 +587,15 @@ function collect(source: string, id: string) {
                 }
                 const key = fieldName(option.name);
                 if (!key || keys.has(key)
-                  || !["fields", "expire"].includes(key)) {
-                  fail(file, option, "Persist supports fields and expire.");
+                  || !["fields", "expire", "storage"].includes(key)) {
+                  fail(file, option, "Persist supports fields, expire and storage.");
                 }
                 keys.add(key);
                 if (key === "fields") list = option.initializer;
+                if (key === "storage" && (!ts.isStringLiteral(option.initializer)
+                  || !["local", "session"].includes(option.initializer.text))) {
+                  fail(file, option, "Persist storage must be local or session.");
+                }
 
               }
               if (!list) fail(file, field, "Persist requires fields.");
@@ -596,6 +608,18 @@ function collect(source: string, id: string) {
             }
           }
           parts.persist = value;
+          continue;
+        }
+        if (isExport && name === "cookie") {
+          if (!declaration.initializer
+            || !ts.isObjectLiteralExpression(declaration.initializer)) {
+            fail(file, declaration, "`cookie` must be an object literal.");
+          }
+          if (parts.singles.has(name)) {
+            fail(file, declaration, "Only one cookie export is allowed.");
+          }
+          parts.singles.add(name);
+          parts.body.push(`const cookie = __cookie(${value});`);
           continue;
         }
         if (isExport && name === "api") {
@@ -888,7 +912,8 @@ function bindTransformer(
     const scan = (child: ts.Node) => {
       if (
         ts.isIdentifier(child)
-        && ["computed", "data", "props", "resource"].includes(child.text)
+        && ["computed", "cookie", "data", "props", "resource"]
+          .includes(child.text)
       ) found = true;
       if (!found) ts.forEachChild(child, scan);
     };
@@ -1452,6 +1477,7 @@ import {
   ${parts.singles.has("menu") ? "menuView as __menu,\n  " : ""}
   ${parts.singles.has("titleBar") ? "titleBarView as __titleBar,\n  " : ""}
   ${parts.persist ? "persistView as __persist,\n  " : ""}
+  ${parts.singles.has("cookie") ? "cookieView as __cookie,\n  " : ""}
   ${parts.singles.has("api") ? "apiView as __api,\n  " : ""}
   ${parts.singles.has("resource") ? "resourceView as __resource,\n  " : ""}
   ${parts.singles.has("timer") ? "timerView as __timer,\n  " : ""}

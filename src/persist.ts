@@ -4,10 +4,12 @@ import { currentLife } from "./life.ts";
 type Fields<Data> = readonly (keyof Data & string)[];
 export type Persist<Data> = Record<
   string,
+  | NoInfer<Data>
   | Fields<Data>
   | {
       fields: Fields<Data>;
       expire?: number;
+      storage?: "local" | "session";
     }
 >;
 
@@ -74,19 +76,45 @@ export function persistView<Data extends Record<string, unknown>>(
   }
   const used = new Set<string>();
   const groups = Object.entries(rules).map(([key, rule]) => {
-    const options = rule as { fields: Fields<Data>; expire?: number };
+    const all = rule === data;
+    if (all && Object.keys(rules).length > 1) {
+      throw new TypeError(
+        "Whole data persistence cannot overlap another group.",
+      );
+    }
+    const options = rule as {
+      fields: Fields<Data>;
+      expire?: number;
+      storage?: "local" | "session";
+    };
+    const mode =
+      all || Array.isArray(rule)
+        ? "local"
+        : options.storage === undefined
+          ? "local"
+          : options.storage;
+    if (mode !== "local" && mode !== "session") {
+      throw new TypeError("Persist storage must be local or session.");
+    }
     return {
       key,
-      fields: Array.isArray(rule) ? rule : options.fields,
-      time: duration(Array.isArray(rule) ? undefined : options.expire),
+      all,
+      mode,
+      area: undefined as Storage | undefined,
+      fields: all
+        ? Object.keys(data)
+        : Array.isArray(rule)
+          ? rule
+          : options.fields,
+      time: duration(all || Array.isArray(rule) ? undefined : options.expire),
       saved: undefined as string | undefined,
       skip: false,
       stamp: 0,
       defaults: {} as Record<string, unknown>,
     };
   });
-  for (const { key, fields } of groups) {
-    if (!key || !Array.isArray(fields) || !fields.length) {
+  for (const { key, fields, all } of groups) {
+    if (!key || !Array.isArray(fields) || (!all && !fields.length)) {
       throw new TypeError("Persist requires named, nonempty field arrays.");
     }
     for (const field of fields) {
@@ -101,11 +129,8 @@ export function persistView<Data extends Record<string, unknown>>(
       used.add(field);
     }
   }
-  let storage: Storage;
   let base = "/";
   try {
-    storage = globalThis.localStorage;
-    if (!storage) return;
     const href = globalThis.document
       ?.querySelector("base[href]")
       ?.getAttribute("href");
@@ -126,6 +151,16 @@ export function persistView<Data extends Record<string, unknown>>(
   // Restore every group before attaching effects or invoking View callbacks.
   for (const group of groups) {
     const { key, fields, time } = group;
+    try {
+      group.area =
+        group.mode === "session"
+          ? globalThis.sessionStorage
+          : globalThis.localStorage;
+    } catch {
+      /* One blocked storage area must not disable other groups. */
+    }
+    const storage = group.area;
+    if (!storage) continue;
     for (const field of fields) {
       try {
         group.defaults[field] = json(data[field]);
@@ -156,8 +191,8 @@ export function persistView<Data extends Record<string, unknown>>(
         storage.removeItem(name);
         continue;
       }
-      for (const field of fields) {
-        if (!Object.hasOwn(value, field)) continue;
+      for (const field of group.all ? Object.keys(value) : fields) {
+        if (unsafe.has(field) || !Object.hasOwn(value, field)) continue;
         if (data[field] != null && kind(data[field]) !== kind(value[field]))
           continue;
         try {
@@ -174,6 +209,8 @@ export function persistView<Data extends Record<string, unknown>>(
   }
   for (const group of groups) {
     const { key, fields, time } = group;
+    const storage = group.area;
+    if (!storage) continue;
     const name = prefix + encodeURIComponent(key);
     let previous: string | undefined;
     let muted = false;
@@ -216,7 +253,7 @@ export function persistView<Data extends Record<string, unknown>>(
     };
     const stop = effect(() => {
       try {
-        const value = snapshot(fields);
+        const value = snapshot(group.all ? Object.keys(data) : fields);
         const text = JSON.stringify(value);
         if (muted || group.skip) {
           previous = text;
