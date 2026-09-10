@@ -1,6 +1,8 @@
+import { currentGate, withGate, type Gate } from "./gate.ts";
 import { traceView, ViewError, type ViewFrame } from "./error.ts";
 
 export type ViewLife = {
+  gate?: Gate;
   close: Array<() => void>;
   load: Array<() => void>;
   frame?: ViewFrame;
@@ -27,7 +29,8 @@ export function withLife<Value>(life: ViewLife, run: () => Value) {
 export function runLife<Value>(
   life: ViewLife, phase: string, run: () => Value,
 ): Value {
-  const call = () => withLife(life, run);
+  const call = () => withGate(currentGate() || life.gate,
+    () => withLife(life, run));
   return life.frame ? traceView({ ...life.frame, phase }, call) : call();
 }
 

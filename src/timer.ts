@@ -1,3 +1,4 @@
+import { visibleGate } from "./gate.ts";
 import { currentLife, lifeCall, type ViewLife } from "./life.ts";
 
 type Cancel = () => void;
@@ -50,6 +51,10 @@ function control(life: ViewLife, name: string, rule: TimerRule) {
     const token = ++generation;
     const tick = () => {
       if (life.closed || !active || token !== generation) return;
+      if (!visibleGate(life.gate)) {
+        if (!repeat) stop();
+        return;
+      }
       if (!repeat) stop();
       if (running) return;
       running = true;
@@ -122,6 +127,10 @@ function schedule(kind: "timeout" | "interval", run: Callback, delay: number) {
   const tick = () => {
     if (!active) return;
     if (life.closed) return cancel();
+    if (!visibleGate(life.gate)) {
+      if (!repeat) cancel();
+      return;
+    }
     if (!repeat) cancel();
     return lifeCall(life, `timer.${kind}`, run);
   };

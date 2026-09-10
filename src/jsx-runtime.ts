@@ -1,3 +1,4 @@
+import { transitionView, type Transition } from "./transition.ts";
 import {
   act,
   Fragment,
@@ -153,7 +154,14 @@ export function jsx(type: any, props: Record<string, any>, key?: unknown) {
       }
     }
   }
-  return actJsx(type, values, key);
+  const transition = typeof type === "string" ? values.transition : undefined;
+  if (typeof type === "string") delete values.transition;
+  const node = actJsx(type, values, key);
+  if (transition) {
+    const rule = transition.__act === true ? transition.read() : transition;
+    transitionView(node as Element, rule as Transition);
+  }
+  return node;
 }
 
 export const jsxs = jsx;

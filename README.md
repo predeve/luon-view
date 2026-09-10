@@ -484,3 +484,94 @@ also suppresses a callback that was queued but has not started. Canceling a
 timer does not interrupt an already-running callback or abort its API request.
 Async interval callbacks retain native interval behavior and can overlap;
 use request cancellation or a separate task scheduler when needed.
+
+## Transitions, resources, and cached Views
+
+### Enter and leave transitions
+
+```tsx
+export const data = { open: false };
+export default () => <>
+  <button onClick={() => data.open = !data.open}>Toggle</button>
+  {data.open && <aside transition={{ effect: "fade", duration: 180 }}>
+    Saved.
+  </aside>}
+</>;
+```
+
+`transition` applies to native elements. `fade` is currently supported;
+`duration` defaults to 180 ms and accepts 0..60000 ms. On conditional removal,
+View disposes reactive work immediately and retains the visual DOM until the
+animation finishes. Leaving elements are inert and hidden from accessibility
+APIs. Closing the owner cancels pending animations and removes
+its DOM immediately. A newly shown element enters independently of a leaving
+one. Reduced-motion preferences disable animation; environments without the
+Web Animations API remove elements immediately.
+
+### View-owned asynchronous resources
+
+```tsx
+import { Await } from "@luon/view";
+
+export const resource = {
+  profile: {
+    async load({ signal }: { signal: AbortSignal }) {
+      const response = await fetch("/api/profile", { signal });
+      if (!response.ok) throw new Error("Profile could not be loaded.");
+      return response.json();
+    },
+  },
+};
+
+export default () => <>
+  <button onClick={() => resource.profile.reload()}>Refresh</button>
+  <Await value={resource.profile} pending={() => <p>Loading…</p>}
+    error={(error) => <p>{String(error)}</p>}>
+    {(profile) => <h2>{profile.name}</h2>}
+  </Await>
+</>;
+```
+
+The View compiler creates a separate resource per instance. Initial loading
+starts on connection. `status` is `pending`, `ready`, or `error`; `value` and
+`error` expose the result. `reload()` returns a Promise that settles after the
+state update; loading failures are stored in `error`, not rethrown.
+Reload aborts the previous signal. Closing the owner aborts in-flight work.
+Late results are ignored even when a loader does not honor cancellation.
+Previous values are retained while reloading. Dependencies are not automatically
+watched: use a View watcher to call `reload()` when request inputs change.
+There is no cross-instance request cache. Use `resourceView()` directly in
+manual `componentView` setup; `.reload()` belongs to the compiled resource,
+not the raw exported configuration object.
+
+### Preserve a View between tab changes
+
+```tsx
+import { KeepAlive } from "@luon/view";
+import Profile from "./profile";
+import Settings from "./settings";
+
+export const data = { tab: "profile" };
+export default () => <>
+  <button onClick={() => data.tab = "profile"}>Profile</button>
+  <button onClick={() => data.tab = "settings"}>Settings</button>
+  <KeepAlive cacheKey={data.tab} max={2}>
+    {data.tab === "profile" ? <Profile /> : <Settings />}
+  </KeepAlive>
+</>;
+```
+
+The compiler evaluates the single child lazily for each new key. Keys are
+strings or finite numbers. `max` is a positive integer, defaults to 2, and
+limits the least-recently-used cache. Cached instances retain DOM and local
+state. `event.load` runs once; `event.close` runs on eviction or owner closure.
+Inactive entries are hidden in wrapper elements and ignore `event.window`,
+`event.document`, and View timer callbacks. Intervals resume callbacks when
+shown; timeouts that elapse while hidden are skipped, not replayed.
+Resources and custom subscriptions continue until eviction. KeepAlive does
+not pause arbitrary user code or native WebViews. Do not cache screens whose
+background work must stop or whose shared props must be recreated on each tab
+switch. Direct callers pass a lazy `children: () => ...` function.
+
+Luon projects provide `Await` and `KeepAlive` automatically. Standalone projects
+import them from `@luon/view` and compile `.view.tsx` with `viewPlugin`.

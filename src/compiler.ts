@@ -407,6 +407,7 @@ function collect(source: string, id: string) {
           "style",
           "styles",
           "timer",
+          "resource",
           "titleBar",
           "watch",
         ].includes(item.name.text);
@@ -551,6 +552,18 @@ function collect(source: string, id: string) {
           continue;
         }
 
+        if (isExport && name === "resource") {
+          if (!declaration.initializer
+            || !ts.isObjectLiteralExpression(declaration.initializer)) {
+            fail(file, declaration, "`resource` must be an object literal.");
+          }
+          if (parts.singles.has(name)) {
+            fail(file, declaration, "Only one resource export is allowed.");
+          }
+          parts.singles.add(name);
+          parts.body.push(`const resource = __resource(${value});`);
+          continue;
+        }
         if (isExport && name === "timer") {
           if (!declaration.initializer
             || !ts.isObjectLiteralExpression(declaration.initializer)) {
@@ -817,7 +830,7 @@ function bindTransformer(
     const scan = (child: ts.Node) => {
       if (
         ts.isIdentifier(child)
-        && ["computed", "data", "props"].includes(child.text)
+        && ["computed", "data", "props", "resource"].includes(child.text)
       ) found = true;
       if (!found) ts.forEachChild(child, scan);
     };
@@ -841,7 +854,9 @@ function bindTransformer(
         !ts.isJsxOpeningElement(opening)
         && !ts.isJsxSelfClosingElement(opening)
       ) return node;
-      if (!/^[a-z]/.test(opening.tagName.getText())) return node;
+      if (!/^[a-z]/.test(opening.tagName.getText())
+        && !(opening.tagName.getText() === "KeepAlive"
+          && ["cacheKey", "max"].includes(name))) return node;
     }
     if (!reactive(value)) return node;
     return factory.updateJsxExpression(
@@ -1163,6 +1178,28 @@ function bindTransformer(
   }
 
   function visit(node: ts.Node): ts.VisitResult<ts.Node> {
+    if (ts.isJsxElement(node)
+      && node.openingElement.tagName.getText() === "KeepAlive") {
+      const children = node.children.filter((child) =>
+        !ts.isJsxText(child) || child.text.trim());
+      if (children.length !== 1) {
+        throw new CompileError("KeepAlive requires one child expression.");
+      }
+      const child = children[0]!;
+      const source = ts.isJsxExpression(child) ? child.expression : child;
+      if (!source || ts.isJsxText(source)) {
+        throw new CompileError("KeepAlive requires a View child.");
+      }
+      const body = ts.visitNode(source, visit) as ts.Expression;
+      const lazy = factory.createArrowFunction(undefined, undefined, [],
+        undefined, factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+        body);
+      const opening = ts.visitNode(
+        node.openingElement, visit,
+      ) as ts.JsxOpeningElement;
+      return factory.updateJsxElement(node, opening,
+        [factory.createJsxExpression(undefined, lazy)], node.closingElement);
+    }
     if (ts.isJsxExpression(node)) node = live(node);
     if (
       ts.isVariableDeclaration(node)
@@ -1346,6 +1383,7 @@ import {
   ${parts.styleFns.size ? "dynamicView as __dynamic,\n  " : ""}
   ${parts.singles.has("menu") ? "menuView as __menu,\n  " : ""}
   ${parts.singles.has("titleBar") ? "titleBarView as __titleBar,\n  " : ""}
+  ${parts.singles.has("resource") ? "resourceView as __resource,\n  " : ""}
   ${parts.singles.has("timer") ? "timerView as __timer,\n  " : ""}
   liveView as __live,
   state as __state,

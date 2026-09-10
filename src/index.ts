@@ -1,3 +1,7 @@
+export type { Transition } from "./transition.ts";
+export { KeepAlive } from "./keep.ts";
+export { Await, resourceView, type Resource, type Resources }
+  from "./resource.ts";
 export { titleBarView } from "./titlebar.ts";
 export type { TitleBar } from "./titlebar.ts";
 export { timer, timerView } from "./timer.ts";

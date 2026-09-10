@@ -1,3 +1,4 @@
+import { currentGate, visibleGate } from "./gate.ts";
 import {
   act,
   bindProps,
@@ -297,7 +298,11 @@ export function eventView(event: ViewEvents) {
     if (!target || !handlers) return;
     for (const [name, run] of Object.entries(handlers)) {
       if (typeof run !== "function") continue;
-      const handler = (event: Event) => call(`event.${name}`, () => run(event));
+      const handler = (event: Event) => {
+        if (visibleGate(life?.gate)) {
+          return call(`event.${name}`, () => run(event));
+        }
+      };
       target.addEventListener(name, handler, true);
       clean.push(() => target.removeEventListener(
         name,
@@ -493,7 +498,8 @@ export function componentView<
     const frame = {
       view: name, ...(source?.views?.[name] || source), phase: "setup",
     };
-    const life: ViewLife = { close: [], load: [], frame };
+    const life: ViewLife = { close: [], load: [], frame,
+      gate: currentGate() || currentLife()?.gate };
     let rendered: ViewLife | undefined;
     let scope: ViewScope<Props>;
     const clean = (...runs: Array<() => void>) => {
@@ -537,7 +543,7 @@ export function componentView<
     const read = act((): Child => {
       if (closed) throw new Error(`Luon ${name} View is closed.`);
       viewVersion();
-      const next: ViewLife = { close: [], load: [], frame };
+      const next: ViewLife = { close: [], load: [], frame, gate: life.gate };
       let child: Child;
       try {
         child = runLife(next, "render", () => scope.render(input));
