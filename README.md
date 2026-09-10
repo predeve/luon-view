@@ -24,6 +24,26 @@ Luon compiles this syntax automatically. In a standalone Bun build, register
 Read the implementation: [compiler](src/compiler.ts) ·
 [reactivity](src/reactive.ts).
 
+## The engine at the center of Luon
+
+**View brings Luon's building blocks together into one screen authoring
+model.** It defines how components, state, events, resources, styles, and
+lifecycles work together across Luon products.
+
+- [Act](https://github.com/predeve/luon-act) powers reactive state and DOM
+  updates beneath View.
+- [Style](https://github.com/predeve/luon-style) provides scoped CSS and
+  reactive styling for Views.
+- [Rule](https://github.com/predeve/luon-rule) supplies validation rules
+  that Views and forms can use.
+- [UI](https://github.com/predeve/luon-ui) builds reusable components on
+  View, ready to compose into application screens.
+
+View coordinates the screen; the other packages supply focused capabilities.
+UI is built on View rather than being a required dependency of View.
+These packages remain separately usable, while View gives Luon developers
+a consistent way to combine them.
+
 ## Install
 
 ```bash
