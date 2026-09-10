@@ -138,19 +138,16 @@ export const computed = {
 export default () => <Input bind={computed.name} />;
 ```
 
-### Lifecycle cleanup
+### Automatic window events
 
-Pair every external listener or subscription with event.close.
+Declare window events; View registers and removes them automatically.
 
 ```tsx
-const resize = () => console.log(innerWidth);
-
 export const event = {
-  load() {
-    window.addEventListener("resize", resize);
-  },
-  close() {
-    window.removeEventListener("resize", resize);
+  window: {
+    resize() {
+      console.log(innerWidth);
+    },
   },
 };
 
