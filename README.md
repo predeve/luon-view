@@ -6,6 +6,24 @@ Part of [Luon](https://www.luon.dev) — Luon View compiler and Act runtime.
 [Source](https://github.com/predeve/luon-view) ·
 [Developer tools](https://www.luon.dev/tools)
 
+Plain state and a small View. The compiler connects reactive updates.
+
+```tsx
+// counter.view.tsx
+export const data = { count: 0 };
+
+export default () => (
+  <button onClick={() => data.count++}>
+    Count: {data.count}
+  </button>
+);
+```
+
+Luon compiles this syntax automatically. In a standalone Bun build, register
+`viewPlugin` from `@luon/view/plugin`, then mount the compiled View with Act.
+Read the implementation: [compiler](src/compiler.ts) ·
+[reactivity](src/reactive.ts).
+
 ## Install
 
 ```bash
