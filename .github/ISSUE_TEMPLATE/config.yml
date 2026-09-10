@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Luon documentation
+    url: https://docs.luon.dev
+    about: Read the language, Runtime, CLI, and deployment guides.
+  - name: Install Luon CLI
+    url: https://www.luon.dev/tools#install-cli
+    about: Use the supported installer for macOS, Linux, or Windows.
+  - name: Report a security vulnerability privately
+    url: https://github.com/predeve/luon-view/security/advisories/new
+    about: Never disclose credentials or vulnerabilities in a public Issue.

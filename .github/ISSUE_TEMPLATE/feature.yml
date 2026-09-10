@@ -1,0 +1,53 @@
+name: Feature request
+description: Propose a capability or improvement for any Luon product.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product
+      options:
+        - View
+        - UI
+        - Act, Rule, or Style
+        - CLI or Agent
+        - WebView
+        - Runtime, Worker, or Provider
+        - Core, Hub, or Gateway
+        - Package or CDN
+        - Templates
+        - Website or documentation
+        - Multiple products
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user problem before describing the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Explain how the feature should work from the user's perspective.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current alternatives
+      description: Optional. Tell us how you handle the problem today.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing Issues for a similar request.
+          required: true
+        - label: This request describes a concrete use case.
+          required: true

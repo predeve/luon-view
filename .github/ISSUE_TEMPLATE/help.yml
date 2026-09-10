@@ -1,0 +1,57 @@
+name: Development help
+description: Ask a focused public question about building or operating with Luon.
+title: "[Help]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Development help is public and best-effort. Do not include credentials,
+        private source, customer data, or confidential URLs.
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product
+      options:
+        - View or UI
+        - CLI or Agent
+        - WebView
+        - Runtime, Worker, or Provider
+        - Core, Hub, or Gateway
+        - Package, CDN, or Templates
+        - Website or documentation
+        - Multiple products
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to build?
+      description: Give enough context to understand the intended result.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Include relevant code, commands, documentation, and results.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, architecture, Bun, CLI, and package versions.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the documentation and existing Issues.
+          required: true
+        - label: I removed all private and sensitive information.
+          required: true

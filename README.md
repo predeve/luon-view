@@ -575,3 +575,36 @@ switch. Direct callers pass a lazy `children: () => ...` function.
 
 Luon projects provide `Await` and `KeepAlive` automatically. Standalone projects
 import them from `@luon/view` and compile `.view.tsx` with `viewPlugin`.
+
+## Luon community
+
+View is Luon's central screen engine. This repository also hosts the
+community for the complete Luon product family.
+
+- [Report a bug, request a feature, or get development help](https://github.com/predeve/luon-view/issues/new/choose)
+- [Discuss ideas and ask questions](https://github.com/predeve/luon-view/discussions)
+- [Sponsor Luon](https://sponsor.luon.dev)
+- [Luon website](https://www.luon.dev)
+- [Documentation](https://docs.luon.dev)
+- [Install CLI and explore developer tools](https://www.luon.dev/tools)
+- [Package registry](https://pkg.luon.dev)
+
+Reports can cover View, UI, Act, Rule, Style, CLI, Agent, WebView, Runtime,
+Worker, Provider, Core, Hub, Gateway, Package, CDN, Templates, or documentation.
+Choose the closest product in the issue form, or select `Multiple products`.
+
+Search existing issues first and include a small reproduction, relevant
+versions, operating system, and CPU architecture. Remove credentials,
+private URLs, and customer data. Public development help is best-effort.
+
+Report security vulnerabilities through
+[private vulnerability reporting](https://github.com/predeve/luon-view/security/advisories/new),
+not public issues or discussions.
+
+### Explore the source
+
+- [View](https://github.com/predeve/luon-view): screen language and execution
+- [Act](https://github.com/predeve/luon-act): reactive state and DOM updates
+- [Style](https://github.com/predeve/luon-style): scoped and reactive styles
+- [Rule](https://github.com/predeve/luon-rule): data validation
+- [UI](https://github.com/predeve/luon-ui): shared screen components
