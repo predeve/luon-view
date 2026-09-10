@@ -36,8 +36,9 @@ lifecycles work together across Luon products.
   reactive styling for Views.
 - [Rule](https://github.com/predeve/luon-rule) supplies validation rules
   that Views and forms can use.
-- [UI](https://github.com/predeve/luon-ui) builds reusable components on
-  View, ready to compose into application screens.
+- [UI](https://github.com/predeve/luon-ui) turns View's strengths into
+  finished components: Luon's most complete screen development experience
+  and a showcase of what the engine can do.
 
 View coordinates the screen; the other packages supply focused capabilities.
 UI is built on View rather than being a required dependency of View.
