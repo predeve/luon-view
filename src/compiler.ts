@@ -47,6 +47,7 @@ type Parts = {
   pluralValues: Record<PluralName, Map<string, string>>;
   shared: string[];
   singles: Set<string>;
+  persist?: string;
   spec?: string;
   types: string[];
   view?: string;
@@ -391,6 +392,7 @@ function collect(source: string, id: string) {
       const reserved = declarations.find((item) => {
         if (!ts.isIdentifier(item.name)) return false;
         return [
+          "persist",
           "api",
           "computed",
           "config",
@@ -553,6 +555,28 @@ function collect(source: string, id: string) {
           continue;
         }
 
+        if (isExport && name === "persist") {
+          if (!declaration.initializer
+            || !ts.isObjectLiteralExpression(declaration.initializer)) {
+            fail(file, declaration, "`persist` must be an object literal.");
+          }
+          if (parts.persist) {
+            fail(file, declaration, "Only one persist export is allowed.");
+          }
+          for (const field of declaration.initializer.properties) {
+            if (!ts.isPropertyAssignment(field)
+              || !field.name || ts.isComputedPropertyName(field.name)
+              || !ts.isArrayLiteralExpression(field.initializer)
+              || !field.initializer.elements.length
+              || field.initializer.elements.some(item =>
+                !ts.isStringLiteral(item))) {
+              fail(file, field,
+                "`persist` requires static keys and nonempty string arrays.");
+            }
+          }
+          parts.persist = value;
+          continue;
+        }
         if (isExport && name === "api") {
           if (!declaration.initializer
             || !ts.isObjectLiteralExpression(declaration.initializer)) {
@@ -1357,6 +1381,16 @@ function compileSingle(
   const parts = collect(source, id);
   if (!parts.view) return { code: source };
   if (group) connectGroup(parts, group, name || componentName(id));
+  if (parts.persist) {
+    const index = parts.body.findIndex(item => item.startsWith("const data ="));
+    if (index < 0) {
+      throw new CompileError("`persist` requires an exported `data` object.");
+    }
+    const path = (sourceId || id).replaceAll("\\", "/");
+    const scope = path.match(/(?:^|\/)app\/(.*)$/)?.[1] || path;
+    parts.body.splice(index + 1, 0,
+      `__persist(data, ${parts.persist}, ${JSON.stringify(scope)});`);
+  }
   const scopedStyles = parts.styles && !parts.classOnly;
   const stateStyles = parts.styles
     && (!parts.classOnly || parts.styleReactive);
@@ -1396,6 +1430,7 @@ import {
   ${parts.styleFns.size ? "dynamicView as __dynamic,\n  " : ""}
   ${parts.singles.has("menu") ? "menuView as __menu,\n  " : ""}
   ${parts.singles.has("titleBar") ? "titleBarView as __titleBar,\n  " : ""}
+  ${parts.persist ? "persistView as __persist,\n  " : ""}
   ${parts.singles.has("api") ? "apiView as __api,\n  " : ""}
   ${parts.singles.has("resource") ? "resourceView as __resource,\n  " : ""}
   ${parts.singles.has("timer") ? "timerView as __timer,\n  " : ""}

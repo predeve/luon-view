@@ -40,6 +40,16 @@ async function save() {
 The default base is `/api`, with same-origin cookies, JSON headers, and a
 5-second timeout. Common and per-endpoint settings are optional.
 
+Selected state can also survive reopening the View:
+
+```tsx
+export const data = { theme: "dark", name: "mr.kim" };
+export const persist = { preferences: ["theme", "name"] };
+```
+
+View restores these fields and saves their changes automatically in local
+browser/WebView storage.
+
 ## The engine at the center of Luon
 
 **View brings Luon's building blocks together into one screen authoring
@@ -75,7 +85,7 @@ Luon Site authors and tools compiling the public TSX View language.
 
 ### Reserved module exports
 
-data, computed, watch, event, timer, api, style, deepStyle, and default form one View definition that the compiler connects to Act.
+data, computed, watch, event, timer, api, persist, style, deepStyle, and default form one View definition that the compiler connects to Act.
 
 ### Plain reactive state
 
@@ -521,6 +531,76 @@ also suppresses a callback that was queued but has not started. Canceling a
 timer does not interrupt an already-running callback or abort its API request.
 Async interval callbacks retain native interval behavior and can overlap;
 use request cancellation or a separate task scheduler when needed.
+
+## Automatic state persistence
+
+Declare which `data` fields should survive reopening the View. No save or load
+function is required.
+
+```tsx
+export const data = {
+  theme: "dark",
+  name: "mr.kim",
+  loading: false,
+};
+
+export const persist = {
+  preferences: ["theme", "name"],
+};
+
+export default () => <>
+  <input bind={data.name} />
+  <button onClick={() => data.theme = "light"}>Light theme</button>
+  <p>{data.name} — {data.theme}</p>
+</>;
+```
+
+`preferences` is a storage group; its array contains top-level `data` field
+names. Changing `data.theme` or `data.name` saves automatically. `loading` is
+not saved and starts as `false` each time. Multiple groups use the same object
+syntax:
+
+```tsx
+export const persist = {
+  preferences: ["theme"],
+  profile: ["name"],
+};
+```
+
+- Restoration runs immediately after `data` is created, before computed values,
+  watchers, rendering, and `event.load` consume it. Put `data` before other
+  setup declarations; `persist` itself may appear before or after `data`.
+- Missing saved fields keep their declared initial values. Malformed JSON and
+  incompatible top-level types are ignored. A `null` or `undefined` initial
+  field can accept any supported JSON value.
+- Selected arrays and plain objects are observed deeply. Nested changes,
+  replacements, and deletions save synchronously. Stored object/array values
+  replace their initial counterparts rather than merging nested defaults.
+- Values must be JSON data: strings, finite numbers, booleans, null, arrays,
+  and plain objects. Functions, Date, BigInt, cyclic objects, and other custom
+  instances are not supported. An unsupported group retains its last saved
+  value; memory state continues to work. An undefined/deleted top-level field
+  is omitted, so the next mount uses its declared default.
+- Each field must exist in `data` and appear in only one group. Compiled
+  declarations require static group keys and nonempty arrays of field names.
+- Persistence uses `localStorage` in the current browser/WebView profile.
+  Its namespace includes the document base path, View source path, and group
+  key. Different sites/origins, Views, and groups do not share stored values.
+  Within Luon projects the View path is relative to `app/`, so changing the
+  build directory does not change its key. Renaming the View or group starts
+  a new entry. Standalone compilers should supply stable, distinct file IDs.
+- Instances of the same View share the stored entry. The latest write wins;
+  mounted instances and other tabs are not automatically synchronized.
+  Use a shared store when multiple screens need live shared state.
+- Closing the View stops persistence effects. KeepAlive keeps them active
+  until eviction or owner closure. If storage is blocked or full, the View
+  continues to work in memory. Clearing site/profile storage removes saved
+  values; this is local preference storage, not a server backup or encryption.
+
+For manual View setup, use
+`persistView(data, { preferences: ["theme"] }, "settings")` inside
+`componentView`. `data` must be reactive state. The typed `Persist<typeof data>`
+helper can check field names in manual code.
 
 ## Named API calls
 

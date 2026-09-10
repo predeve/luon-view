@@ -184,3 +184,46 @@ test("compiled API integrates with resource reload and closes its requests", asy
   }
   expect(requests.at(-1)!.signal.aborted).toBe(true);
 });
+
+test("compiled persist restores before computed and load on remount", async () => {
+  const prior = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    value: dom.localStorage, configurable: true,
+  });
+  dom.localStorage.clear();
+  const source = `
+    export const persist = { preferences: ["theme"] };
+    export const data = { theme: "dark", loaded: "" };
+    export const computed = { label: () => data.theme.toUpperCase() };
+    export const event = { load() { data.loaded = computed.label(); } };
+    export default () => <button onClick={() => data.theme = "light"}>
+      {computed.label()} / {data.loaded}
+    </button>;
+  `;
+  // The path remains stable across installs/build directories.
+  const dir = await mkdtemp(resolve("luon-temp/persist-dom-"));
+  const path = resolve(dir, "demo.js");
+  await Bun.write(path, compileView(source, {
+    id: "/project/app/pages/settings.tsx",
+  }).code);
+  let close: (() => void) | undefined;
+  const root = document.createElement("main");
+  document.body.append(root);
+  try {
+    const mod = await import(path);
+    close = mount(mod.default({}) as Child, root);
+    await tick();
+    expect(root.textContent).toContain("DARK / DARK");
+    root.querySelector("button")!.click();
+    close();
+    close = mount(mod.default({}) as Child, root);
+    await tick();
+    expect(root.textContent).toContain("LIGHT / LIGHT");
+  } finally {
+    close?.(); root.remove();
+    await rm(dir, { recursive: true });
+    dom.localStorage.clear();
+    if (prior) Object.defineProperty(globalThis, "localStorage", prior);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
