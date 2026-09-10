@@ -565,13 +565,34 @@ function collect(source: string, id: string) {
           }
           for (const field of declaration.initializer.properties) {
             if (!ts.isPropertyAssignment(field)
-              || !field.name || ts.isComputedPropertyName(field.name)
-              || !ts.isArrayLiteralExpression(field.initializer)
-              || !field.initializer.elements.length
-              || field.initializer.elements.some(item =>
-                !ts.isStringLiteral(item))) {
+              || ts.isComputedPropertyName(field.name)) {
+              fail(file, field, "`persist` requires static group keys.");
+            }
+            let fields: ts.Expression = field.initializer;
+            if (ts.isObjectLiteralExpression(fields)) {
+              let list: ts.Expression | undefined;
+              const keys = new Set<string>();
+              for (const option of fields.properties) {
+                if (!ts.isPropertyAssignment(option)
+                  || ts.isComputedPropertyName(option.name)) {
+                  fail(file, option, "Invalid persist option.");
+                }
+                const key = fieldName(option.name);
+                if (!key || keys.has(key)
+                  || !["fields", "expire"].includes(key)) {
+                  fail(file, option, "Persist supports fields and expire.");
+                }
+                keys.add(key);
+                if (key === "fields") list = option.initializer;
+
+              }
+              if (!list) fail(file, field, "Persist requires fields.");
+              fields = list;
+            }
+            if (!ts.isArrayLiteralExpression(fields) || !fields.elements.length
+              || fields.elements.some(item => !ts.isStringLiteral(item))) {
               fail(file, field,
-                "`persist` requires static keys and nonempty string arrays.");
+                "`persist` requires nonempty string arrays for fields.");
             }
           }
           parts.persist = value;

@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test, setSystemTime } from "bun:test";
 import { state } from "@luon/act";
-import { persistView } from "../src/persist.ts";
+import { persistView, type Persist } from "../src/persist.ts";
 import { closeLife, withLife, type ViewLife } from "../src/life.ts";
 import { compileView } from "../src/compiler.ts";
 
@@ -8,6 +8,7 @@ const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 const lives: ViewLife[] = [];
 afterEach(() => {
   for (const life of lives.splice(0)) closeLife(life);
+  setSystemTime();
   if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
   else Reflect.deleteProperty(globalThis, "localStorage");
 });
@@ -16,6 +17,9 @@ function memory() {
   let writes = 0;
   const storage = {
     getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
     setItem(key: string, value: string) {
       writes++;
       values.set(key, value);
@@ -29,7 +33,7 @@ function memory() {
 }
 function setup<Data extends Record<string, unknown>>(
   value: Data,
-  rules: Record<string, readonly (keyof Data & string)[]>,
+  rules: Persist<Data>,
   scope = "pages/settings.tsx",
 ) {
   const life: ViewLife = { load: [], close: [] };
@@ -170,4 +174,110 @@ test("compiler restores after data and before computed, independent of order", (
   );
   expect(first).toContain('"pages/settings.tsx"');
   expect(next).toContain('"pages/settings.tsx"');
+});
+
+test("expiry uses seconds and reopening does not renew the saved timestamp", () => {
+  const store = memory();
+  const start = 1_800_000_000_000;
+  setSystemTime(start);
+  const rules = { profile: { fields: ["name"], expire: 60 } } as const;
+  const first = setup({ name: "Kim" }, rules);
+  first.data.name = "Jane";
+  first.close();
+  const key = [...store.values.keys()][0]!;
+  const saved = store.values.get(key);
+  setSystemTime(start + 59000);
+  const second = setup({ name: "Kim" }, rules);
+  expect(second.data.name).toBe("Jane");
+  expect(store.values.get(key)).toBe(saved);
+  second.close();
+  setSystemTime(start + 60000);
+  const expired = setup({ name: "Kim" }, rules);
+  expect(expired.data.name).toBe("Kim");
+  expect(store.values.has(key)).toBe(false);
+  expired.data.name = "New";
+  expect(JSON.parse(store.values.get(key)!)[1]).toBe(start + 60000);
+});
+
+test("changes renew expiry; unrelated fields and same values do not", () => {
+  const store = memory();
+  const start = 1_800_000_000_000;
+  setSystemTime(start);
+  const rules = { profile: { fields: ["name"], expire: 60 } } as const;
+  const app = setup({ name: "Kim", busy: false }, rules);
+  const key = [...store.values.keys()][0]!;
+  setSystemTime(start + 30000);
+  app.data.busy = true;
+  app.data.name = "Kim";
+  expect(JSON.parse(store.values.get(key)!)[1]).toBe(start);
+  app.data.name = "Jane";
+  expect(JSON.parse(store.values.get(key)!)[1]).toBe(start + 30000);
+  app.close();
+  setSystemTime(start + 60000);
+  expect(setup({ name: "Kim" }, rules).data.name).toBe("Jane");
+});
+
+test("expiry resets an open View and cannot delete a newer writer", async () => {
+  const store = memory();
+  const rules = { profile: { fields: ["name"], expire: 1 } } as const;
+  const first = setup({ name: "Kim" }, rules);
+  first.data.name = "Jane";
+  const other = setup({ name: "Other" }, rules, "other");
+  other.data.name = "Old";
+  const key = [...store.values.keys()].find((key) => key.includes("other"))!;
+  const newer = JSON.stringify([1, Date.now() + 500, { name: "New" }]);
+  store.values.set(key, newer);
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  expect(first.data.name).toBe("Kim");
+  expect(store.values.size).toBe(1);
+  expect(store.values.get(key)).toBe(newer);
+  expect(other.data.name).toBe("Other");
+  first.data.name = "Again";
+  expect(store.values.size).toBe(2);
+});
+
+test("legacy unexpired storage is retained; adding expiry discards undated data", () => {
+  const store = memory();
+  const first = setup({ name: "Kim" }, { profile: ["name"] });
+  first.close();
+  const key = [...store.values.keys()][0]!;
+  store.values.set(key, '{"name":"Legacy"}');
+  const old = setup({ name: "Kim" }, { profile: ["name"] });
+  expect(old.data.name).toBe("Legacy");
+  old.close();
+  expect(
+    setup(
+      { name: "Kim" },
+      {
+        profile: { fields: ["name"], expire: 60 },
+      },
+    ).data.name,
+  ).toBe("Kim");
+  expect(store.values.has(key)).toBe(false);
+});
+
+test("expiry requires numeric positive whole seconds in source and manual API", () => {
+  memory();
+  for (const value of [0, -1, 0.1, Infinity, "7d", "60"]) {
+    expect(() =>
+      setup(
+        { name: "Kim" },
+        {
+          profile: { fields: ["name"], expire: value as number },
+        },
+      ),
+    ).toThrow("seconds");
+  }
+  const source = (value: string) => `export const data = { name: "Kim" };
+    export const persist = { profile: { fields: ["name"], expire: ${value} } };
+    export default () => null;`;
+  expect(compileView(source("604800")).code).toContain("604800");
+  const output = compileView(source("(3600 * 12)")).code;
+  expect(output).toContain("3600 * 12");
+  const rules = { profile: { fields: ["name"], expire: 3600 * 12 } } as const;
+  const app = setup({ name: "Kim" }, rules);
+  app.data.name = "Jane";
+  app.close();
+  setSystemTime(Date.now() + 3600 * 12 * 1000);
+  expect(setup({ name: "Kim" }, rules).data.name).toBe("Kim");
 });

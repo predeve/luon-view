@@ -192,7 +192,9 @@ test("compiled persist restores before computed and load on remount", async () =
   });
   dom.localStorage.clear();
   const source = `
-    export const persist = { preferences: ["theme"] };
+    export const persist = {
+      preferences: { fields: ["theme"], expire: (3600 * 12) },
+    };
     export const data = { theme: "dark", loaded: "" };
     export const computed = { label: () => data.theme.toUpperCase() };
     export const event = { load() { data.loaded = computed.label(); } };

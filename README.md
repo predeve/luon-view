@@ -583,6 +583,7 @@ export const persist = {
   is omitted, so the next mount uses its declared default.
 - Each field must exist in `data` and appear in only one group. Compiled
   declarations require static group keys and nonempty arrays of field names.
+  A group may also use `{ fields, expire }` for expiration in seconds.
 - Persistence uses `localStorage` in the current browser/WebView profile.
   Its namespace includes the document base path, View source path, and group
   key. Different sites/origins, Views, and groups do not share stored values.
@@ -601,6 +602,48 @@ For manual View setup, use
 `persistView(data, { preferences: ["theme"] }, "settings")` inside
 `componentView`. `data` must be reactive state. The typed `Persist<typeof data>`
 helper can check field names in manual code.
+
+### Expiration in seconds
+
+The array form has no expiration. For a limited lifetime, supply `fields`
+and `expire`. `expire` is a positive whole number of **seconds**, not a string.
+Normal JavaScript numeric expressions are supported and evaluated once during
+View setup:
+
+```tsx
+export const data = { theme: "dark", name: "mr.kim" };
+
+export const persist = {
+  preferences: ["theme"],
+  profile: {
+    fields: ["name"],
+    expire: (3600 * 12),
+  },
+};
+```
+
+This keeps the theme indefinitely and the name for 12 hours. `expire: 604800`
+is seven days; omitting `expire` keeps the group indefinitely. Zero, negative,
+fractional, non-finite, or string values are rejected.
+
+The clock starts when a group is first saved and restarts only when its saved
+field values change. Reopening or rendering the View, assigning the same value,
+or changing an unselected field does not extend it. All fields in a group share
+one deadline. Changing the configured duration applies it to the original saved
+timestamp, not the reopening time.
+
+An expired group is removed and uses the current declared initial values.
+An open View resets automatically when its expiry timer runs, including while
+cached by KeepAlive. If the browser pauses timers, the reset occurs when the
+callback resumes. When no View is running, expired data is removed on its next
+read. Closing cancels that instance's timer. A new value change can save the
+group again after expiration. An older instance will not remove a newer write
+from another instance; this does not add live cross-tab synchronization.
+
+Existing undated storage from older View releases remains readable for groups
+without expiration. If expiration is added to such a group, its unknown-age
+value is discarded rather than treated as freshly saved. Timestamped entries
+keep their original save time across upgrades and ordinary reopening.
 
 ## Named API calls
 
